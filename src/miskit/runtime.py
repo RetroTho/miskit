@@ -1,0 +1,177 @@
+from dataclasses import dataclass
+from pathlib import Path
+
+from miskit import Channel, Compactor, Config, CronService, Dream, History, Memory, Model, Runner, Tool
+from miskit.runner import DEFAULT_MAX_TOOL_ROUNDS
+from miskit.heartbeat import HEARTBEAT_JOB_ID, HEARTBEAT_QUIET_REPLY, HeartbeatTasks
+
+
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 1800
+
+
+@dataclass
+class Runtime:
+    config: Config
+    instance: Path
+    runner: Runner
+    cron: CronService
+
+
+def max_tool_rounds_from_config(context):
+    """How many tool rounds to allow per user message; set context.maxToolRounds in config.json."""
+    raw = context.get("maxToolRounds", DEFAULT_MAX_TOOL_ROUNDS)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError("context.maxToolRounds must be an integer") from error
+    if value < 1:
+        raise ValueError("context.maxToolRounds must be at least 1")
+    return value
+
+
+def build_runner(config, instance, services=None):
+    instance = Path(instance).expanduser()
+    memory = Memory(instance / "memory")
+    history = History(instance / "history")
+    workspace = instance / "workspace"
+    memory.setup()
+    history.setup()
+    workspace.mkdir(parents=True, exist_ok=True)
+    services = dict(services or {})
+    services.setdefault("memory", memory)
+    services.setdefault("heartbeat_path", heartbeat_path(instance))
+    services.setdefault("workspace", workspace)
+    services.setdefault(
+        "restrict_to_workspace",
+        config.section("workspace").get("restrictToWorkspace", True),
+    )
+
+    context_config = config.section("context")
+    provider_config = dict(config.section("provider"))
+    provider_config["maxTokens"] = context_config.get("outputTokens", 2000)
+
+    model = Model.load(provider_config)
+    compactor = Compactor.from_config(context_config)
+    tools = Tool.load_all(config.entries("tools"), services=services)
+    dream = Dream(
+        model,
+        memory,
+        instance / "history" / "archive",
+        instance / "dream.json",
+    )
+    return Runner(
+        model,
+        memory=memory,
+        history=history,
+        tools=tools,
+        compactor=compactor,
+        dream=dream,
+        max_tool_rounds=max_tool_rounds_from_config(context_config),
+    )
+
+
+def build_channel(config):
+    return Channel.load(config.section("channel"))
+
+
+def channel_name(config):
+    return str(config.section("channel").get("name", "")).strip()
+
+
+def build_cron(instance):
+    instance = Path(instance).expanduser()
+    return CronService(instance / "cron" / "jobs.json")
+
+
+def heartbeat_path(instance):
+    return Path(instance).expanduser() / "cron" / "heartbeat.md"
+
+
+def setup_heartbeat_cron(config, instance, cron):
+    section = config.section("heartbeat")
+    if not section.get("enabled", False):
+        cron.remove_job(HEARTBEAT_JOB_ID)
+        return None
+
+    try:
+        interval_seconds = int(section.get("intervalSeconds", DEFAULT_HEARTBEAT_INTERVAL_SECONDS))
+    except (TypeError, ValueError) as error:
+        raise ValueError("heartbeat.intervalSeconds must be a positive integer") from error
+
+    if interval_seconds <= 0:
+        raise ValueError("heartbeat.intervalSeconds must be a positive integer")
+
+    heartbeat = HeartbeatTasks(heartbeat_path(instance))
+    message = heartbeat.read().strip()
+
+    if not message:
+        cron.remove_job(HEARTBEAT_JOB_ID)
+        return None
+
+    return cron.add_recurring_job(
+        name="heartbeat",
+        every_seconds=interval_seconds,
+        message=message,
+        job_id=HEARTBEAT_JOB_ID,
+    )
+
+
+def connect_cron(cron, runner, write=print, channel=None, heartbeat_file=None):
+    async def on_cron_job(job):
+        content = cron_job_prompt(job, heartbeat_file=heartbeat_file)
+        if not content:
+            return
+
+        reply = await runner.chat(content)
+        if job.id == HEARTBEAT_JOB_ID and heartbeat_reply_is_quiet(reply.content):
+            return
+
+        if channel is None:
+            write(f"Cron: {reply.content}")
+        else:
+            await channel.send(reply.content)
+
+    cron.on_job = on_cron_job
+
+
+def cron_job_prompt(job, heartbeat_file=None):
+    message = job.message
+    if job.id == HEARTBEAT_JOB_ID and heartbeat_file is not None:
+        message = heartbeat_file.read().strip()
+
+    if not message:
+        return ""
+
+    lines = [
+        "[Cron Job Triggered]",
+        f"Name: {job.name}",
+        f"Scheduled For: {job.at.isoformat()}",
+    ]
+    if job.every_seconds is not None:
+        lines.append(f"Repeats Every: {job.every_seconds} seconds")
+    lines.append(f"Message: {message}")
+    return "\n".join(lines)
+
+
+def heartbeat_reply_is_quiet(content):
+    text = content.strip()
+    return not text or text.upper() == HEARTBEAT_QUIET_REPLY
+
+
+def build_runtime(instance=None, write=print):
+    if instance is None:
+        instance = Config.instance
+
+    instance = Path(instance).expanduser()
+    path = instance / "config.json"
+
+    if not path.exists():
+        Config.write_default(path)
+        write(f"Created {path}. Add your API key, then run miskit again.")
+        return None
+
+    config = Config.load(path)
+    cron = build_cron(instance)
+    setup_heartbeat_cron(config, instance, cron)
+    runner = build_runner(config, instance, services={"cron": cron})
+    return Runtime(config, instance, runner, cron)
