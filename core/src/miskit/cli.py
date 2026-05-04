@@ -2,6 +2,7 @@ import asyncio
 import argparse
 
 from miskit.heartbeat import HeartbeatTasks
+from miskit.plugin import install, list_available, list_installed, remove, run_setup
 from miskit.runtime import build_channel
 from miskit.runtime import build_runtime
 from miskit.runtime import channel_name
@@ -76,16 +77,46 @@ async def run(instance=None):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("command", nargs="?", choices=["chat", "serve"], default="chat")
-    parser.add_argument("--instance", "-i", help="Miskit instance directory")
+    parser = argparse.ArgumentParser(prog="miskit")
+    subparsers = parser.add_subparsers(dest="command")
+
+    chat = subparsers.add_parser("chat")
+    chat.add_argument("--instance", "-i", help="Miskit instance directory")
+
+    serve = subparsers.add_parser("serve")
+    serve.add_argument("--instance", "-i", help="Miskit instance directory")
+
+    plugin = subparsers.add_parser("plugin")
+    plugin_sub = plugin.add_subparsers(dest="action")
+    plugin_install = plugin_sub.add_parser("install")
+    plugin_install.add_argument("name", help="Plugin name (e.g. codex)")
+    plugin_setup = plugin_sub.add_parser("setup")
+    plugin_setup.add_argument("name", help="Plugin name (e.g. codex)")
+    plugin_uninstall = plugin_sub.add_parser("uninstall")
+    plugin_uninstall.add_argument("name", help="Plugin name (e.g. codex)")
+    plugin_sub.add_parser("list")
+    plugin_sub.add_parser("available")
+
     args = parser.parse_args()
 
     try:
         if args.command == "serve":
             asyncio.run(run_server(args.instance))
+        elif args.command == "plugin":
+            if args.action == "uninstall":
+                remove(args.name)
+            elif args.action == "install":
+                install(args.name)
+            elif args.action == "setup":
+                run_setup(args.name)
+            elif args.action == "list":
+                list_installed()
+            elif args.action == "available":
+                list_available()
+            else:
+                plugin.print_help()
         else:
-            asyncio.run(run_chat(args.instance))
+            asyncio.run(run_chat(getattr(args, "instance", None)))
     except ValueError as error:
         print(f"Error: {error}")
         raise SystemExit(1) from error
