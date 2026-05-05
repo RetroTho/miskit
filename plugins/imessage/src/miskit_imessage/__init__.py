@@ -41,6 +41,16 @@ class MessagesDatabase:
             ).fetchone()
         return int(row["rowid"])
 
+    def chat_guid(self, recipient):
+        with closing(self.connect()) as connection:
+            row = connection.execute(
+                "select guid from chat where chat_identifier = ? limit 1",
+                (recipient,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row["guid"]
+
     def incoming_after(self, recipient, rowid):
         with closing(self.connect()) as connection:
             rows = connection.execute(
@@ -71,13 +81,10 @@ _SEND_SCRIPT = Path(__file__).parent / "send.applescript"
 
 
 class MessagesApp:
-    async def send(self, recipient, content, log=None):
-        if log is not None:
-            log(f"Sending to {recipient} ({len(content)} chars).")
-
+    async def send(self, chat_guid, content):
         process = await asyncio.create_subprocess_exec(
             "osascript", str(_SEND_SCRIPT),
-            recipient,
+            chat_guid,
             content,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -89,9 +96,6 @@ class MessagesApp:
             if not output:
                 output = stdout.decode("utf-8", errors="replace").strip()
             raise RuntimeError(output or "Messages failed to send the iMessage.")
-
-        if log is not None:
-            log("Sent.")
 
 
 class IMessageChannel(Channel):
@@ -110,6 +114,12 @@ class IMessageChannel(Channel):
         if not self.database.has_recipient(self.recipient):
             raise ValueError(
                 "iMessage recipient was not found in the local Messages database. "
+                "Send or receive a message with this recipient first."
+            )
+        self.chat_guid = self.database.chat_guid(self.recipient)
+        if self.chat_guid is None:
+            raise ValueError(
+                "No iMessage chat found for this recipient. "
                 "Send or receive a message with this recipient first."
             )
         self.last_rowid = self.database.latest_rowid(self.recipient)
@@ -133,7 +143,9 @@ class IMessageChannel(Channel):
             await self.send(reply.content)
 
     async def send(self, content):
-        await self.sender.send(self.recipient, content, log=self._note)
+        self._note(f"Sending to {self.recipient} ({len(content)} chars).")
+        await self.sender.send(self.chat_guid, content)
+        self._note("Sent.")
 
 
 def create_channel(config):
