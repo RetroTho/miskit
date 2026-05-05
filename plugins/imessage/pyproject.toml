@@ -14,3 +14,6 @@ imessage = "miskit_imessage"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+miskit_imessage = ["*.applescript"]

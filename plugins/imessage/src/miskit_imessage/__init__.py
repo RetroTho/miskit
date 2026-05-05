@@ -67,33 +67,19 @@ class MessagesDatabase:
         return connection
 
 
-_SEND_SCRIPT = """
-on run argv
-    set targetRecipient to item 1 of argv
-    set messageText to item 2 of argv
-    tell application "Messages"
-        set targetService to 1st service whose service type = iMessage
-        set targetBuddy to buddy targetRecipient of targetService
-        send messageText to targetBuddy
-    end tell
-end run
-"""
+_SEND_SCRIPT = Path(__file__).parent / "send.applescript"
 
 
 class MessagesApp:
     async def send(self, recipient, content):
-        # Pass the script via stdin ("-") so osascript forwards the extra
-        # arguments (recipient, content) to the "on run argv" handler.
-        # Using "-e" does not reliably pass arguments to argv.
         process = await asyncio.create_subprocess_exec(
-            "osascript", "-",
+            "osascript", str(_SEND_SCRIPT),
             recipient,
             content,
-            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await process.communicate(_SEND_SCRIPT.encode("utf-8"))
+        stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
             output = stderr.decode("utf-8", errors="replace").strip()
