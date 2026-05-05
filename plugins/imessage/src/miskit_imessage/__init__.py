@@ -71,7 +71,10 @@ _SEND_SCRIPT = Path(__file__).parent / "send.applescript"
 
 
 class MessagesApp:
-    async def send(self, recipient, content):
+    async def send(self, recipient, content, log=None):
+        if log is not None:
+            log(f"Sending to {recipient} ({len(content)} chars).")
+
         process = await asyncio.create_subprocess_exec(
             "osascript", str(_SEND_SCRIPT),
             recipient,
@@ -87,6 +90,9 @@ class MessagesApp:
                 output = stdout.decode("utf-8", errors="replace").strip()
             raise RuntimeError(output or "Messages failed to send the iMessage.")
 
+        if log is not None:
+            log("Sent.")
+
 
 class IMessageChannel(Channel):
     def __init__(self, recipient, database=None, sender=None, poll_seconds=2, write=print):
@@ -96,6 +102,9 @@ class IMessageChannel(Channel):
         self.poll_seconds = poll_seconds
         self.write = write
         self.last_rowid = None
+
+    def _note(self, line):
+        self.write(f"[imessage] {line}")
 
     def start(self):
         if not self.database.has_recipient(self.recipient):
@@ -119,11 +128,12 @@ class IMessageChannel(Channel):
 
         for message in self.database.incoming_after(self.recipient, self.last_rowid):
             self.last_rowid = message.rowid
+            self._note(f"Received: {message.text!r}")
             reply = await runner.chat(message.text)
             await self.send(reply.content)
 
     async def send(self, content):
-        await self.sender.send(self.recipient, content)
+        await self.sender.send(self.recipient, content, log=self._note)
 
 
 def create_channel(config):
