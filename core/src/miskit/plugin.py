@@ -50,7 +50,7 @@ def list_available(write=print):
 
 
 def list_installed(write=print):
-    groups = ["miskit.providers", "miskit.channels"]
+    groups = ["miskit.providers", "miskit.channels", "miskit.tools"]
     plugins = sorted(
         (ep for group in groups for ep in entry_points(group=group)),
         key=lambda ep: ep.name,

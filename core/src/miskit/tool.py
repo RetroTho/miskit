@@ -1,4 +1,5 @@
 from importlib import import_module
+from importlib.metadata import entry_points
 
 
 class Tool:
@@ -27,10 +28,14 @@ def load_tool(config, services=None):
 
 
 def load_tool_module(name):
-    try:
-        module = import_module(tool_module_name(name))
-    except ImportError as error:
-        raise ValueError(f"unknown tool: {name}") from error
+    for module_name in _candidate_module_names(name):
+        try:
+            module = import_module(module_name)
+            break
+        except ImportError:
+            continue
+    else:
+        raise ValueError(f"unknown tool: {name}")
 
     if not hasattr(module, "create_tool"):
         raise ValueError(f"tool must define create_tool: {name}")
@@ -38,8 +43,15 @@ def load_tool_module(name):
     return module
 
 
-def tool_module_name(name):
+def _candidate_module_names(name):
+    # Check installed plugins first (entry point names map to a module path).
+    for ep in entry_points(group="miskit.tools"):
+        if ep.name == name:
+            yield ep.value
+            break
+    # Allow a full dotted module path (e.g. "mypackage.tools.custom").
     if "." in name:
-        return name
-
-    return f"miskit.tools.{name}"
+        yield name
+    else:
+        # Fall back to built-in tools (e.g. "read_file" → miskit.tools.read_file).
+        yield f"miskit.tools.{name}"
