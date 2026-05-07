@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 
 from miskit.tool import Tool
 
-_USER_AGENT = "MiskitWebSearch/0.1 (+https://github.com/RetroTho/miskit)"
+_USER_AGENT = "WebSearchTool/0.1"
 
 _RESULT_LINK_RE = re.compile(
     r"""<a[^>]*?\b(?:href="(?P<h1>//duckduckgo\.com/l/\?[^"]+)"[^>]*class='result-link'"""
