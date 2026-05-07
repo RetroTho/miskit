@@ -20,52 +20,78 @@ class MessagesDatabase:
             path = Path.home() / "Library" / "Messages" / "chat.db"
         self.path = Path(path).expanduser()
 
-    def has_recipient(self, recipient):
-        with closing(self.connect()) as connection:
-            row = connection.execute(
-                "select 1 from handle where id = ? limit 1",
-                (recipient,),
-            ).fetchone()
-        return row is not None
-
-    def latest_rowid(self, recipient):
+    def latest_rowid(self, chat_guid):
         with closing(self.connect()) as connection:
             row = connection.execute(
                 """
                 select coalesce(max(message.ROWID), 0) as rowid
                 from message
-                join handle on message.handle_id = handle.ROWID
-                where handle.id = ?
+                join chat_message_join on chat_message_join.message_id = message.ROWID
+                join chat on chat.ROWID = chat_message_join.chat_id
+                where chat.guid = ?
                 """,
-                (recipient,),
+                (chat_guid,),
             ).fetchone()
         return int(row["rowid"])
 
     def chat_guid(self, recipient):
         with closing(self.connect()) as connection:
             row = connection.execute(
-                "select guid from chat where chat_identifier = ? limit 1",
+                "select guid from chat where guid = ? limit 1",
                 (recipient,),
             ).fetchone()
+            if row is not None:
+                return row["guid"]
+
+            row = connection.execute(
+                """
+                select chat.guid as guid
+                from chat
+                join chat_handle_join on chat_handle_join.chat_id = chat.ROWID
+                join handle on handle.ROWID = chat_handle_join.handle_id
+                where handle.id = ?
+                  and (
+                    select count(*)
+                    from chat_handle_join as members
+                    where members.chat_id = chat.ROWID
+                  ) = 1
+                order by chat.ROWID desc
+                limit 1
+                """,
+                (recipient,),
+            ).fetchone()
+
+            if row is None:
+                row = connection.execute(
+                    """
+                    select guid
+                    from chat
+                    where chat_identifier = ?
+                    order by ROWID desc
+                    limit 1
+                    """,
+                    (recipient,),
+                ).fetchone()
         if row is None:
             return None
         return row["guid"]
 
-    def incoming_after(self, recipient, rowid):
+    def incoming_after(self, chat_guid, rowid):
         with closing(self.connect()) as connection:
             rows = connection.execute(
                 """
                 select message.ROWID as rowid, message.text as text
                 from message
-                join handle on message.handle_id = handle.ROWID
-                where handle.id = ?
+                join chat_message_join on chat_message_join.message_id = message.ROWID
+                join chat on chat.ROWID = chat_message_join.chat_id
+                where chat.guid = ?
                   and message.ROWID > ?
                   and message.is_from_me = 0
                   and message.text is not null
                   and message.text != ''
                 order by message.ROWID
                 """,
-                (recipient, rowid),
+                (chat_guid, rowid),
             ).fetchall()
 
         return [IncomingMessage(int(row["rowid"]), row["text"]) for row in rows]
@@ -105,24 +131,20 @@ class IMessageChannel(Channel):
         self.sender = sender or MessagesApp()
         self.poll_seconds = poll_seconds
         self.write = write
+        self.chat_guid = None
         self.last_rowid = None
 
     def _note(self, line):
         self.write(f"[imessage] {line}")
 
     def start(self):
-        if not self.database.has_recipient(self.recipient):
-            raise ValueError(
-                "iMessage recipient was not found in the local Messages database. "
-                "Send or receive a message with this recipient first."
-            )
         self.chat_guid = self.database.chat_guid(self.recipient)
         if self.chat_guid is None:
             raise ValueError(
                 "No iMessage chat found for this recipient. "
                 "Send or receive a message with this recipient first."
             )
-        self.last_rowid = self.database.latest_rowid(self.recipient)
+        self.last_rowid = self.database.latest_rowid(self.chat_guid)
 
     async def run(self, runner):
         self.start()
@@ -136,7 +158,7 @@ class IMessageChannel(Channel):
         if self.last_rowid is None:
             self.start()
 
-        for message in self.database.incoming_after(self.recipient, self.last_rowid):
+        for message in self.database.incoming_after(self.chat_guid, self.last_rowid):
             self.last_rowid = message.rowid
             self._note(f"Received: {message.text!r}")
             reply = await runner.chat(message.text)
