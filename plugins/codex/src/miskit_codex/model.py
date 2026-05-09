@@ -84,7 +84,7 @@ class CodexModel(Model):
         except ValueError as error:
             raise ValueError(
                 "codex requires provider.accessToken and provider.accountId, "
-                "or run: miskit login codex"
+                "or run: miskit plugin setup codex"
             ) from error
         return token.access, str(token.account_id)
 

@@ -46,7 +46,9 @@ def get_codex_token():
     token = session.get_token()
     account_id = extract_jwt_claim(token.access, _JWT_AUTH_CLAIM, _JWT_ACCOUNT_ID_FIELD) or ""
     if not account_id:
-        raise ValueError("Codex token has no account id. Run: miskit login codex")
+        raise ValueError(
+            "Codex token has no account id. Run: miskit plugin setup codex"
+        )
     return CodexToken(token.access, token.refresh, token.expires, account_id)
 
 
