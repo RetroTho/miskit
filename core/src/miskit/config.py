@@ -27,9 +27,6 @@ class Config:
             "enabled": False,
             "intervalSeconds": 1800,
         },
-        "security": {
-            "runAsUser": None,
-        },
         "workspace": {
             "restrictToWorkspace": True,
         },

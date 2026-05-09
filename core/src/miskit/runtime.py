@@ -1,5 +1,3 @@
-import os
-import pwd
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -184,31 +182,4 @@ def build_runtime(instance=None, write=print):
     image_store.setup()
     setup_heartbeat_cron(config, instance, cron)
     runner = build_runner(config, instance, services={"cron": cron, "image_store": image_store})
-
-    run_as_user = config.section("security").get("runAsUser")
-    if run_as_user:
-        drop_privileges(run_as_user)
-
     return Runtime(config, instance, runner, cron, image_store)
-
-
-def drop_privileges(username):
-    """Switch the process to run as the given OS user.
-
-    Must be called as root. After this call every file operation,
-    subprocess, and network connection runs as the target user.
-    """
-    try:
-        entry = pwd.getpwnam(username)
-    except KeyError:
-        raise ValueError(f"runAsUser: unknown user {username!r}")
-
-    uid, gid = entry.pw_uid, entry.pw_gid
-
-    if os.getuid() != 0:
-        raise PermissionError(
-            f"runAsUser requires starting as root (current uid={os.getuid()})")
-
-    os.setgid(gid)
-    os.initgroups(username, gid)
-    os.setuid(uid)

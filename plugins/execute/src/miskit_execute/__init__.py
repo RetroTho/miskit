@@ -3,7 +3,7 @@ from pathlib import Path
 
 from miskit.tool import Tool
 
-# Runs subprocesses on the host — not sandboxed.
+# Runs subprocesses on the host — not sandboxed unless run_as_user is set.
 
 _DEFAULT_TIMEOUT = 60
 _DEFAULT_MAX_OUTPUT_CHARS = 20_000
@@ -69,11 +69,13 @@ class ExecuteTool(Tool):
 
     def __init__(self, workspace=None, restrict_to_workspace=True,
                  timeout=_DEFAULT_TIMEOUT,
-                 max_output_chars=_DEFAULT_MAX_OUTPUT_CHARS):
+                 max_output_chars=_DEFAULT_MAX_OUTPUT_CHARS,
+                 run_as_user=None):
         self.workspace = workspace
         self.restrict_to_workspace = restrict_to_workspace
         self.timeout = timeout
         self.max_output_chars = max_output_chars
+        self.run_as_user = run_as_user
 
     def run(self, arguments):
         argv = arguments.get("argv")
@@ -88,6 +90,9 @@ class ExecuteTool(Tool):
             return "Program name cannot be empty."
 
         argv = [argv[0].strip()] + argv[1:]
+
+        if self.run_as_user:
+            argv = ["sudo", "-u", self.run_as_user, "--"] + argv
 
         cwd_raw = arguments.get("cwd")
         if cwd_raw is not None and not isinstance(cwd_raw, str):
@@ -133,4 +138,5 @@ def create_tool(config, services=None):
         timeout=float(config.get("timeout", _DEFAULT_TIMEOUT)),
         max_output_chars=int(config.get("maxOutputChars",
                                         _DEFAULT_MAX_OUTPUT_CHARS)),
+        run_as_user=config.get("runAsUser"),
     )
