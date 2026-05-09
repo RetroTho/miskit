@@ -3,7 +3,7 @@ from pathlib import Path
 
 from miskit.tool import Tool
 
-# Runs subprocesses on the host as the same OS user as Miskit — not sandboxed. Only enable when you trust callers.
+# Runs subprocesses on the host — not sandboxed unless run_as_user is set.
 
 _DEFAULT_TIMEOUT = 60
 _DEFAULT_MAX_OUTPUT_CHARS = 20_000
@@ -15,22 +15,21 @@ def _truncate(text, limit):
     return text[:limit] + f"\n\n[output truncated at {limit} characters]"
 
 
-def _resolve_cwd(workspace, restrict_to_workspace, cwd_hint):
-    relative = str(cwd_hint or "").strip()
-    if relative:
-        if workspace is None:
-            return Path(relative).expanduser().resolve()
-        return _resolve_cwd_under_workspace(workspace, restrict_to_workspace, relative)
-    if workspace is not None:
-        return Path(workspace).expanduser().resolve()
-    return None
+def _resolve_cwd(workspace, restrict, relative):
+    relative = str(relative or "").strip()
 
+    if not relative:
+        if workspace is not None:
+            return Path(workspace).expanduser().resolve()
+        return None
 
-def _resolve_cwd_under_workspace(workspace, restrict_to_workspace, relative):
-    path = Path(relative).expanduser()
+    if workspace is None:
+        return Path(relative).expanduser().resolve()
+
     base = Path(workspace).expanduser()
+    path = Path(relative).expanduser()
 
-    if not restrict_to_workspace:
+    if not restrict:
         return path.resolve()
 
     if path.is_absolute():
@@ -47,11 +46,10 @@ def _resolve_cwd_under_workspace(workspace, restrict_to_workspace, relative):
 class ExecuteTool(Tool):
     name = "execute"
     description = (
-        "Run a real program on the host machine with the same permissions as the Miskit process "
-        "(not sandboxed — it can access files, network, and devices the user can). "
-        "Be careful: a mistaken or malicious invocation can delete or corrupt data, leak secrets, harm the system, or compromise accounts — only run programs and arguments you understand and intend. "
+        "Run a program on the host machine. "
+        "Not sandboxed — the program runs with the same permissions as Miskit. "
         "Pass argv with the program first, then each argument. "
-        "No shell is started: pipes, globs, and $() are not expanded by a shell, but the program itself can still do anything it is allowed to do."
+        "No shell is started: pipes, globs, and $() are not expanded."
     )
     input_schema = {
         "type": "object",
@@ -59,50 +57,55 @@ class ExecuteTool(Tool):
             "argv": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Program name or path, then arguments. Double-check before running — wrong values can damage or expose the user's data or system.",
+                "description": "Program name or path, followed by arguments.",
             },
             "cwd": {
                 "type": "string",
-                "description": "Working directory, relative to the workspace when restrictions apply. Defaults to the workspace. Double-check before running — wrong values can damage or expose the user's data or system.",
+                "description": "Working directory. Defaults to the workspace.",
             },
         },
         "required": ["argv"],
     }
 
-    def __init__(self, workspace=None, restrict_to_workspace=True, timeout=_DEFAULT_TIMEOUT, max_output_chars=_DEFAULT_MAX_OUTPUT_CHARS):
-        self.workspace = Path(workspace).expanduser() if workspace is not None else None
+    def __init__(self, workspace=None, restrict_to_workspace=True,
+                 timeout=_DEFAULT_TIMEOUT,
+                 max_output_chars=_DEFAULT_MAX_OUTPUT_CHARS,
+                 run_as_user=None):
+        self.workspace = workspace
         self.restrict_to_workspace = restrict_to_workspace
         self.timeout = timeout
         self.max_output_chars = max_output_chars
+        self.run_as_user = run_as_user
 
     def run(self, arguments):
-        raw_argv = arguments.get("argv")
-        if not isinstance(raw_argv, list) or len(raw_argv) < 1:
-            return "Execute needs argv with at least a program name."
+        argv = arguments.get("argv")
+        if not isinstance(argv, list) or not argv:
+            return "argv must be a non-empty list."
 
-        argv = []
-        for index, item in enumerate(raw_argv):
+        for item in argv:
             if not isinstance(item, str):
-                return "Execute argv entries must be strings."
-            if index == 0:
-                program = item.strip()
-                if not program:
-                    return "Execute needs a non-empty program name."
-                argv.append(program)
-            else:
-                argv.append(item)
+                return "Every argv entry must be a string."
+
+        if not argv[0].strip():
+            return "Program name cannot be empty."
+
+        argv = [argv[0].strip()] + argv[1:]
+
+        if self.run_as_user:
+            argv = ["sudo", "-u", self.run_as_user, "--"] + argv
 
         cwd_raw = arguments.get("cwd")
         if cwd_raw is not None and not isinstance(cwd_raw, str):
-            return "Execute cwd must be a string."
+            return "cwd must be a string."
 
         try:
-            cwd = _resolve_cwd(self.workspace, self.restrict_to_workspace, cwd_raw if cwd_raw else None)
+            cwd = _resolve_cwd(self.workspace, self.restrict_to_workspace,
+                               cwd_raw)
         except ValueError as error:
             return f"Could not run program: {error}"
 
         try:
-            completed = subprocess.run(
+            result = subprocess.run(
                 argv,
                 cwd=cwd,
                 capture_output=True,
@@ -116,27 +119,24 @@ class ExecuteTool(Tool):
         except subprocess.TimeoutExpired:
             return f"Program timed out after {self.timeout} seconds."
 
-        lines = [f"exit code: {completed.returncode}", ""]
+        parts = [f"exit code: {result.returncode}"]
+        if result.stdout:
+            parts.extend(["", "stdout:", result.stdout.rstrip()])
+        if result.stderr:
+            parts.extend(["", "stderr:", result.stderr.rstrip()])
 
-        if completed.stdout:
-            lines.extend(["stdout:", completed.stdout.rstrip("\n"), ""])
-
-        if completed.stderr:
-            lines.extend(["stderr:", completed.stderr.rstrip("\n")])
-
-        return _truncate("\n".join(lines).strip(), self.max_output_chars)
+        return _truncate("\n".join(parts), self.max_output_chars)
 
 
 def create_tool(config, services=None):
     services = services or {}
-    workspace = services.get("workspace")
-    restrict = config.get("restrictToWorkspace", services.get("restrict_to_workspace", True))
-    timeout = float(config.get("timeout", _DEFAULT_TIMEOUT))
-    max_output_chars = int(config.get("maxOutputChars", _DEFAULT_MAX_OUTPUT_CHARS))
-
     return ExecuteTool(
-        workspace=workspace,
-        restrict_to_workspace=bool(restrict),
-        timeout=timeout,
-        max_output_chars=max_output_chars,
+        workspace=services.get("workspace"),
+        restrict_to_workspace=bool(
+            config.get("restrictToWorkspace",
+                        services.get("restrict_to_workspace", True))),
+        timeout=float(config.get("timeout", _DEFAULT_TIMEOUT)),
+        max_output_chars=int(config.get("maxOutputChars",
+                                        _DEFAULT_MAX_OUTPUT_CHARS)),
+        run_as_user=config.get("runAsUser"),
     )
