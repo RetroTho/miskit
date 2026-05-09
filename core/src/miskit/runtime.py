@@ -35,7 +35,9 @@ def build_runner(config, instance, services=None):
     memory = Memory(instance / "memory")
     history = History(instance / "history")
     image_store = ImageStore(instance / "images")
-    workspace = instance / "workspace"
+    workspace_config = config.section("workspace")
+    workspace_path = workspace_config.get("path")
+    workspace = Path(workspace_path).expanduser().resolve() if workspace_path else instance / "workspace"
     memory.setup()
     history.setup()
     image_store.setup()
