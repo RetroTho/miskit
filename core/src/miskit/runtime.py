@@ -15,6 +15,7 @@ class Runtime:
     instance: Path
     runner: Runner
     cron: CronService
+    image_store: ImageStore
 
 
 def max_tool_rounds_from_config(context):
@@ -73,8 +74,8 @@ def build_runner(config, instance, services=None):
     )
 
 
-def build_channel(config):
-    return Channel.load(config.section("channel"))
+def build_channel(config, image_store=None):
+    return Channel.load(config.section("channel"), image_store=image_store)
 
 
 def channel_name(config):
@@ -175,6 +176,8 @@ def build_runtime(instance=None, write=print):
 
     config = Config.load(path)
     cron = build_cron(instance)
+    image_store = ImageStore(instance / "images")
+    image_store.setup()
     setup_heartbeat_cron(config, instance, cron)
-    runner = build_runner(config, instance, services={"cron": cron})
-    return Runtime(config, instance, runner, cron)
+    runner = build_runner(config, instance, services={"cron": cron, "image_store": image_store})
+    return Runtime(config, instance, runner, cron, image_store)

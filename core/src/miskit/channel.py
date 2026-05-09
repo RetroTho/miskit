@@ -4,8 +4,8 @@ from importlib.metadata import entry_points
 
 class Channel:
     @classmethod
-    def load(cls, config):
-        return load_channel(config)
+    def load(cls, config, image_store=None):
+        return load_channel(config, image_store=image_store)
 
     async def run(self, runner):
         raise NotImplementedError("channels must define run")
@@ -14,13 +14,13 @@ class Channel:
         raise NotImplementedError("channels must define send")
 
 
-def load_channel(config):
+def load_channel(config, image_store=None):
     name = config.get("name")
     if not name:
         raise ValueError("channel.name is required")
 
     module = load_channel_module(name)
-    return module.create_channel(config)
+    return module.create_channel(config, image_store=image_store)
 
 
 def load_channel_module(name):

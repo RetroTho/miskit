@@ -27,5 +27,5 @@ class TerminalChannel(Channel):
         self.write(f"Agent: {content}")
 
 
-def create_channel(config):
+def create_channel(config, image_store=None):
     return TerminalChannel()

@@ -18,7 +18,7 @@ async def run_chat(instance=None, write=print):
     if channel_name(runtime.config) != "terminal":
         raise ValueError("miskit chat only supports the terminal channel. Use miskit serve.")
 
-    channel = build_channel(runtime.config)
+    channel = build_channel(runtime.config, image_store=runtime.image_store)
     connect_cron(
         runtime.cron,
         runtime.runner,
@@ -41,7 +41,7 @@ async def run_server(instance=None, stop_event=None, write=print):
     if channel_name(runtime.config) == "terminal":
         raise ValueError("miskit serve does not support the terminal channel. Use miskit chat.")
 
-    channel = build_channel(runtime.config)
+    channel = build_channel(runtime.config, image_store=runtime.image_store)
     connect_cron(
         runtime.cron,
         runtime.runner,

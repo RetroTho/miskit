@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 
 from miskit.channel import Channel
+from miskit.message import Message
 
 _TELEGRAM_API = "https://api.telegram.org"
 _MAX_MESSAGE_LENGTH = 4096
@@ -117,6 +118,7 @@ def _post(url, payload, log=None):
 
 class TelegramBotClient:
     def __init__(self, token, log=None):
+        self._token = token
         self._base = f"{_TELEGRAM_API}/bot{token}"
         self._log = log
 
@@ -142,15 +144,25 @@ class TelegramBotClient:
             log=self._log,
         )
 
+    def get_file(self, file_id):
+        result = _post(
+            f"{self._base}/getFile",
+            {"file_id": file_id},
+            log=self._log,
+        )
+        return result.get("file_path", "")
 
-def _text_from_update(update):
+    def download_file(self, file_path):
+        url = f"{_TELEGRAM_API}/file/bot{self._token}/{file_path}"
+        request = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT_SECONDS) as response:
+            return response.read()
+
+
+def _content_from_update(update):
     for key in ("message", "channel_post", "edited_message", "edited_channel_post"):
         part = update.get(key)
         if not isinstance(part, dict):
-            continue
-
-        text = part.get("text") or part.get("caption")
-        if not isinstance(text, str) or not text.strip():
             continue
 
         chat = part.get("chat")
@@ -161,9 +173,36 @@ def _text_from_update(update):
         if chat_id is None:
             continue
 
-        return str(chat_id), text.strip()
+        text = part.get("text") or part.get("caption") or ""
+        if isinstance(text, str):
+            text = text.strip()
 
-    return None, None
+        photo = _largest_photo(part.get("photo"))
+
+        if not text and photo is None:
+            continue
+
+        return str(chat_id), text, photo
+
+    return None, None, None
+
+
+def _largest_photo(photos):
+    if not isinstance(photos, list) or not photos:
+        return None
+
+    best = None
+    best_area = 0
+
+    for photo in photos:
+        if not isinstance(photo, dict):
+            continue
+        area = photo.get("width", 0) * photo.get("height", 0)
+        if area > best_area:
+            best = photo
+            best_area = area
+
+    return best
 
 
 def _chunks(text, max_length):
@@ -175,9 +214,10 @@ def _chunks(text, max_length):
 
 
 class TelegramChannel(Channel):
-    def __init__(self, token, chat_id, poll_timeout=30, client=None, write=print):
+    def __init__(self, token, chat_id, poll_timeout=30, image_store=None, client=None, write=print):
         self._chat_id = chat_id
         self._poll_timeout = poll_timeout
+        self._image_store = image_store
         self._write = write
         self._client = client or TelegramBotClient(token, log=self._note)
 
@@ -190,12 +230,15 @@ class TelegramChannel(Channel):
         )
 
         for update in updates:
-            chat_id, text = _text_from_update(update)
+            chat_id, text, photo = _content_from_update(update)
             if chat_id is None or chat_id != self._chat_id:
                 continue
 
             try:
-                reply = await runner.chat(text)
+                message = await self._build_message(text, photo)
+                if message is None:
+                    continue
+                reply = await runner.chat(message)
                 await self.send(reply.content)
             except Exception as exc:
                 self._note(f"could not answer message: {exc}")
@@ -205,6 +248,23 @@ class TelegramChannel(Channel):
                     self._note(f"could not send error reply: {send_exc}")
 
         return next_offset
+
+    async def _build_message(self, text, photo):
+        if photo is None or self._image_store is None:
+            return text if text else None
+
+        file_path = await asyncio.to_thread(self._client.get_file, photo["file_id"])
+        image_bytes = await asyncio.to_thread(self._client.download_file, file_path)
+        filename = file_path.rsplit("/", 1)[-1] if "/" in file_path else file_path
+        metadata = self._image_store.save_bytes(image_bytes, filename=filename)
+
+        content = []
+        if text:
+            content.append({"type": "text", "text": text})
+        content.append({"type": "image", "path": metadata["path"], "mime_type": metadata["mime_type"]})
+
+        stored = f"{text}\n[Image]" if text else "[Image]"
+        return Message("user", content, stored_content=stored)
 
     async def run(self, runner):
         offset = 0
@@ -218,7 +278,7 @@ class TelegramChannel(Channel):
             await asyncio.to_thread(self._client.send_message, self._chat_id, part)
 
 
-def create_channel(config):
+def create_channel(config, image_store=None):
     token = str(config.get("token", "")).strip()
     if not token:
         raise ValueError("channel.token is required for telegram")
@@ -236,4 +296,6 @@ def create_channel(config):
     if poll_timeout < 1 or poll_timeout > 50:
         raise ValueError("channel.pollTimeout must be between 1 and 50 (seconds)")
 
-    return TelegramChannel(token, str(chat_id_raw).strip(), poll_timeout=poll_timeout)
+    return TelegramChannel(
+        token, str(chat_id_raw).strip(), poll_timeout=poll_timeout, image_store=image_store,
+    )
