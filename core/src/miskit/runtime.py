@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from miskit import Channel, Compactor, Config, CronService, Dream, History, Memory, Model, Runner, Tool
+from miskit import Channel, Compactor, Config, CronService, Dream, History, ImageStore, Memory, Model, Runner, Tool
 from miskit.runner import DEFAULT_MAX_TOOL_ROUNDS
 from miskit.heartbeat import HEARTBEAT_JOB_ID, HEARTBEAT_QUIET_REPLY, HeartbeatTasks
 
@@ -33,12 +33,15 @@ def build_runner(config, instance, services=None):
     instance = Path(instance).expanduser()
     memory = Memory(instance / "memory")
     history = History(instance / "history")
+    image_store = ImageStore(instance / "images")
     workspace = instance / "workspace"
     memory.setup()
     history.setup()
+    image_store.setup()
     workspace.mkdir(parents=True, exist_ok=True)
     services = dict(services or {})
     services.setdefault("memory", memory)
+    services.setdefault("image_store", image_store)
     services.setdefault("heartbeat_path", heartbeat_path(instance))
     services.setdefault("workspace", workspace)
     services.setdefault(

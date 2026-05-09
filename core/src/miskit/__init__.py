@@ -8,6 +8,7 @@ from miskit.dream import Dream
 from miskit.dream import DreamResult
 from miskit.history import History
 from miskit.heartbeat import HeartbeatTasks
+from miskit.image import ImageStore
 from miskit.memory import Memory
 from miskit.message import Message
 from miskit.message import ToolCall

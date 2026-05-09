@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import json
+from pathlib import Path
 from urllib.request import Request
 from urllib.request import urlopen
 
@@ -77,7 +79,7 @@ class GenericModel(Model):
         result = []
 
         for message in messages:
-            content = message.content
+            content = self._content(message)
             if message.role == "assistant" and message.tool_calls and not content:
                 content = None
 
@@ -95,6 +97,26 @@ class GenericModel(Model):
             result.append(item)
 
         return result
+
+    def _content(self, message):
+        if isinstance(message.content, str):
+            return message.content
+
+        parts = []
+        for part in message.parts:
+            if part["type"] == "text":
+                parts.append({
+                    "type": "text",
+                    "text": part["text"],
+                })
+            elif part["type"] == "image":
+                parts.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": self._image_data_url(part["path"], part["mime_type"]),
+                    },
+                })
+        return parts
 
     def _tools(self, tools):
         result = []
@@ -171,6 +193,10 @@ class GenericModel(Model):
             return arguments
 
         return {}
+
+    def _image_data_url(self, path, mime_type):
+        data = base64.b64encode(Path(path).read_bytes()).decode("ascii")
+        return f"data:{mime_type};base64,{data}"
 
 
 class GenericProvider(Provider):

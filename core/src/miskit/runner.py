@@ -90,7 +90,7 @@ class Runner:
         for index in range(len(messages) - 1, -1, -1):
             message = messages[index]
             if message.role == "user":
-                messages[index] = Message("user", f"{metadata}\n\n{message.content}")
+                messages[index] = message.with_prepended_text(f"{metadata}\n\n")
                 return messages
 
         messages.append(Message("user", metadata))
@@ -98,9 +98,12 @@ class Runner:
 
     async def chat(self, content):
         async with self._chat_lock:
-            self.conversation.add_user(content)
+            user_message = self._user_message(content)
+            stored_message = user_message.storage_message()
+            self.conversation.add(stored_message)
             archived = await self.compact_if_needed()
-            message = await self.run_turn(self.conversation.messages, log_tools=True)
+            messages = self._messages_with_active_user_message(stored_message, user_message)
+            message = await self.run_turn(messages, log_tools=True)
             self._last_prompt_tokens = message.usage.get("prompt_tokens")
             self.conversation.add(message)
             self.log_conversation()
@@ -158,6 +161,21 @@ class Runner:
             return await self.model.complete(messages)
 
         return await self.model.complete(messages, self.tools)
+
+    def _user_message(self, content):
+        if isinstance(content, Message):
+            if content.role != "user":
+                raise ValueError("chat messages must have role='user'")
+            return content
+        return Message("user", content)
+
+    def _messages_with_active_user_message(self, stored_message, active_message):
+        messages = list(self.conversation.messages)
+        for index in range(len(messages) - 1, -1, -1):
+            if messages[index] is stored_message:
+                messages[index] = active_message
+                break
+        return messages
 
     def run_tool(self, tool_call):
         for tool in self.tools:
