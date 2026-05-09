@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import json
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -95,7 +97,7 @@ class CodexModel(Model):
             elif message.role == "user":
                 input_items.append({
                     "role": "user",
-                    "content": [{"type": "input_text", "text": message.content}],
+                    "content": self._user_content(message),
                 })
             elif message.role == "assistant":
                 input_items += self._assistant_input(message, index)
@@ -126,6 +128,22 @@ class CodexModel(Model):
                 "name": tool_call.name,
                 "arguments": json.dumps(tool_call.arguments),
             })
+        return items
+
+    def _user_content(self, message):
+        if isinstance(message.content, str):
+            return [{"type": "input_text", "text": message.content}]
+
+        items = []
+        for part in message.parts:
+            if part["type"] == "text":
+                items.append({"type": "input_text", "text": part["text"]})
+            elif part["type"] == "image":
+                data = base64.b64encode(Path(part["path"]).read_bytes()).decode("ascii")
+                items.append({
+                    "type": "input_image",
+                    "image_url": f"data:{part['mime_type']};base64,{data}",
+                })
         return items
 
     def _tools(self, tools):
