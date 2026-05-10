@@ -1,9 +1,11 @@
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from miskit import Channel, Compactor, Config, CronService, Dream, History, ImageStore, Memory, Model, Runner, Tool
+from miskit.message import Message
 from miskit.runner import DEFAULT_MAX_TOOL_ROUNDS
-from miskit.heartbeat import HEARTBEAT_JOB_ID, HEARTBEAT_QUIET_REPLY, HeartbeatTasks
+from miskit.heartbeat import HEARTBEAT_JOB_ID, HEARTBEAT_QUIET_REPLY, HeartbeatLog, HeartbeatTasks
 
 
 DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 1800
@@ -46,6 +48,7 @@ def build_runner(config, instance, services=None):
     services.setdefault("memory", memory)
     services.setdefault("image_store", image_store)
     services.setdefault("heartbeat_path", heartbeat_path(instance))
+    services.setdefault("heartbeat_log", HeartbeatLog(heartbeat_log_path(instance)))
     services.setdefault("workspace", workspace)
     services.setdefault(
         "restrict_to_workspace",
@@ -97,6 +100,10 @@ def heartbeat_path(instance):
     return Path(instance).expanduser() / "cron" / "heartbeat.md"
 
 
+def heartbeat_log_path(instance):
+    return Path(instance).expanduser() / "cron" / "heartbeats.jsonl"
+
+
 def setup_heartbeat_cron(config, instance, cron):
     section = config.section("heartbeat")
     if not section.get("enabled", False):
@@ -126,20 +133,45 @@ def setup_heartbeat_cron(config, instance, cron):
     )
 
 
-def connect_cron(cron, runner, write=print, channel=None, heartbeat_file=None):
+def connect_cron(cron, runner, write=print, channel=None, heartbeat_file=None, heartbeat_log=None):
     async def on_cron_job(job):
         content = cron_job_prompt(job, heartbeat_file=heartbeat_file)
         if not content:
             return
 
+        snapshot = len(runner.conversation.messages)
         reply = await runner.chat(content)
-        if job.id == HEARTBEAT_JOB_ID and heartbeat_reply_is_quiet(reply.content):
+
+        if job.id != HEARTBEAT_JOB_ID:
+            if channel is None:
+                write(f"Cron: {reply.content}")
+            else:
+                await channel.send(reply.content)
             return
 
-        if channel is None:
-            write(f"Cron: {reply.content}")
-        else:
-            await channel.send(reply.content)
+        quiet = heartbeat_reply_is_quiet(reply.content)
+        timestamp = datetime.now().astimezone().isoformat()
+        turn_messages = runner.conversation.messages[snapshot:]
+
+        if heartbeat_log is not None:
+            heartbeat_log.log(timestamp, turn_messages, quiet)
+
+        runner.rollback_conversation(snapshot)
+
+        if not quiet:
+            marker = Message(
+                "user",
+                f"[Heartbeat {timestamp}] You responded to the user during this heartbeat. "
+                f"Use heartbeat(action=\"history\") to review the full details.",
+            )
+            runner.conversation.add(marker)
+            runner.conversation.add(reply)
+            runner.log_conversation()
+
+            if channel is None:
+                write(f"Cron: {reply.content}")
+            else:
+                await channel.send(reply.content)
 
     cron.on_job = on_cron_job
 

@@ -156,6 +156,12 @@ class Runner:
                 self.history.log(message)
             self._logged_count = len(self.conversation.messages)
 
+    def rollback_conversation(self, message_count):
+        self.conversation.messages = self.conversation.messages[:message_count]
+        self._logged_count = message_count
+        if self.history is not None:
+            self.history.write(self.conversation.messages)
+
     async def complete(self, messages):
         if not self.tools:
             return await self.model.complete(messages)

@@ -1,3 +1,5 @@
+import json
+from datetime import datetime
 from pathlib import Path
 
 
@@ -93,3 +95,44 @@ def parse_task_line(line):
     if text.lower().startswith("- [x] "):
         return True, text[6:].strip()
     return None
+
+
+class HeartbeatLog:
+    """Saves heartbeat turns to a separate JSONL file so the agent can review them later."""
+
+    def __init__(self, path):
+        self.path = Path(path)
+
+    def setup(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists():
+            self.path.write_text("", encoding="utf-8")
+
+    def log(self, timestamp, messages, quiet):
+        self.setup()
+        entry = {
+            "timestamp": timestamp,
+            "quiet": quiet,
+            "messages": [self._message_data(message) for message in messages],
+        }
+        with self.path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(entry) + "\n")
+
+    def read(self, limit=10):
+        self.setup()
+        entries = []
+        for line in self.path.read_text(encoding="utf-8").splitlines():
+            if line:
+                entries.append(json.loads(line))
+        return entries[-limit:]
+
+    def _message_data(self, message):
+        data = {"role": message.role, "content": message.content}
+        if message.tool_calls:
+            data["tool_calls"] = [
+                {"name": tc.name, "arguments": tc.arguments}
+                for tc in message.tool_calls
+            ]
+        if message.name:
+            data["name"] = message.name
+        return data

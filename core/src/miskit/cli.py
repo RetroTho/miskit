@@ -1,12 +1,13 @@
 import asyncio
 import argparse
 
-from miskit.heartbeat import HeartbeatTasks
+from miskit.heartbeat import HeartbeatLog, HeartbeatTasks
 from miskit.plugin import install, list_available, list_installed, remove, run_setup
 from miskit.runtime import build_channel
 from miskit.runtime import build_runtime
 from miskit.runtime import channel_name
 from miskit.runtime import connect_cron
+from miskit.runtime import heartbeat_log_path
 from miskit.runtime import heartbeat_path
 
 
@@ -25,6 +26,7 @@ async def run_chat(instance=None, write=print):
         write=write,
         channel=channel,
         heartbeat_file=HeartbeatTasks(heartbeat_path(runtime.instance)),
+        heartbeat_log=HeartbeatLog(heartbeat_log_path(runtime.instance)),
     )
     await runtime.cron.start()
     try:
@@ -48,6 +50,7 @@ async def run_server(instance=None, stop_event=None, write=print):
         write=write,
         channel=channel,
         heartbeat_file=HeartbeatTasks(heartbeat_path(runtime.instance)),
+        heartbeat_log=HeartbeatLog(heartbeat_log_path(runtime.instance)),
     )
 
     if stop_event is None:

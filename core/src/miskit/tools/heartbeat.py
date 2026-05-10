@@ -1,17 +1,17 @@
-from miskit.heartbeat import HeartbeatTasks
+from miskit.heartbeat import HeartbeatLog, HeartbeatTasks
 from miskit.tool import Tool
 
 
 class HeartbeatTool(Tool):
     name = "heartbeat"
-    description = "Add, list, complete, and remove tasks in Miskit's heartbeat task file."
+    description = "Add, list, complete, and remove tasks in Miskit's heartbeat task file. Use history to view past heartbeat results."
     input_schema = {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["add", "list", "complete", "remove"],
-                "description": "Use add to create a task, list to show tasks, complete to mark one done, or remove to delete one.",
+                "enum": ["add", "list", "complete", "remove", "history"],
+                "description": "Use add to create a task, list to show tasks, complete to mark one done, remove to delete one, or history to view past heartbeat results.",
             },
             "text": {
                 "type": "string",
@@ -21,12 +21,17 @@ class HeartbeatTool(Tool):
                 "type": "integer",
                 "description": "Task number from the list action.",
             },
+            "limit": {
+                "type": "integer",
+                "description": "Number of past heartbeats to show (default 10). Only used with the history action.",
+            },
         },
         "required": ["action"],
     }
 
-    def __init__(self, tasks):
+    def __init__(self, tasks, log=None):
         self.tasks = tasks
+        self.log = log
 
     def run(self, arguments):
         action = str(arguments.get("action", "")).strip()
@@ -39,8 +44,10 @@ class HeartbeatTool(Tool):
             return self._complete(arguments)
         if action == "remove":
             return self._remove(arguments)
+        if action == "history":
+            return self._history(arguments)
 
-        return "Unknown heartbeat action. Use add, list, complete, or remove."
+        return "Unknown heartbeat action. Use add, list, complete, remove, or history."
 
     def _add(self, arguments):
         text = str(arguments.get("text", "")).strip()
@@ -89,6 +96,27 @@ class HeartbeatTool(Tool):
 
         return f"Removed heartbeat task {task_id}."
 
+    def _history(self, arguments):
+        if self.log is None:
+            return "No heartbeat log available."
+
+        limit = arguments.get("limit", 10)
+        entries = self.log.read(limit=limit)
+        if not entries:
+            return "No past heartbeats recorded."
+
+        lines = [f"Last {len(entries)} heartbeat(s):"]
+        for entry in entries:
+            status = "quiet" if entry.get("quiet") else "responded"
+            lines.append(f"\n[{entry['timestamp']}] ({status})")
+            for message in entry.get("messages", []):
+                role = message.get("role", "unknown")
+                content = message.get("content", "")
+                lines.append(f"  {role}: {content}")
+                for tc in message.get("tool_calls", []):
+                    lines.append(f"    -> tool call: {tc['name']}({tc['arguments']})")
+        return "\n".join(lines)
+
 
 def create_tool(config, services=None):
     services = services or {}
@@ -96,4 +124,5 @@ def create_tool(config, services=None):
     if heartbeat_path is None:
         raise ValueError("heartbeat tool requires a heartbeat path")
 
-    return HeartbeatTool(HeartbeatTasks(heartbeat_path))
+    heartbeat_log = services.get("heartbeat_log")
+    return HeartbeatTool(HeartbeatTasks(heartbeat_path), log=heartbeat_log)
