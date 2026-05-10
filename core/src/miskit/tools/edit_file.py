@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from miskit.tool import Tool
+from miskit import file_process
 
 
 class EditFileTool(Tool):
@@ -33,9 +34,11 @@ class EditFileTool(Tool):
         "required": ["path", "old_text", "new_text"],
     }
 
-    def __init__(self, workspace=None, restrict_to_workspace=True):
+    def __init__(self, workspace=None, restrict_to_workspace=True,
+                 run_as_user=None):
         self.workspace = Path(workspace).expanduser() if workspace is not None else None
         self.restrict_to_workspace = restrict_to_workspace
+        self.run_as_user = run_as_user
         if self.workspace is not None:
             self.workspace.mkdir(parents=True, exist_ok=True)
 
@@ -67,11 +70,12 @@ class EditFileTool(Tool):
         except ValueError as error:
             return f"Could not edit file: {error}"
 
-        if not path.is_file():
+        if not file_process.is_file(path, run_as_user=self.run_as_user):
             return f"Could not edit file: not a file or does not exist: {requested_path}"
 
         try:
-            content = path.read_text(encoding="utf-8")
+            content = file_process.read_text(path,
+                                             run_as_user=self.run_as_user)
         except OSError as error:
             return f"Could not edit file: {error}"
         except UnicodeDecodeError:
@@ -94,7 +98,8 @@ class EditFileTool(Tool):
             new_content = content[:start] + new_text + content[start + len(old_text) :]
 
         try:
-            path.write_text(new_content, encoding="utf-8")
+            file_process.write_text(path, new_content,
+                                    run_as_user=self.run_as_user)
         except OSError as error:
             return f"Could not edit file: {error}"
 
@@ -123,4 +128,9 @@ def create_tool(config, services=None):
         "restrictToWorkspace",
         services.get("restrict_to_workspace", True),
     )
-    return EditFileTool(workspace=workspace, restrict_to_workspace=bool(restrict_to_workspace))
+    run_as_user = services.get("run_as_user")
+    return EditFileTool(
+        workspace=workspace,
+        restrict_to_workspace=bool(restrict_to_workspace),
+        run_as_user=run_as_user,
+    )

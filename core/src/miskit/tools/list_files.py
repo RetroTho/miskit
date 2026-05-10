@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from miskit.tool import Tool
+from miskit import file_process
 
 
 class ListFilesTool(Tool):
@@ -16,9 +17,11 @@ class ListFilesTool(Tool):
         },
     }
 
-    def __init__(self, workspace=None, restrict_to_workspace=True):
+    def __init__(self, workspace=None, restrict_to_workspace=True,
+                 run_as_user=None):
         self.workspace = Path(workspace).expanduser() if workspace is not None else None
         self.restrict_to_workspace = restrict_to_workspace
+        self.run_as_user = run_as_user
         if self.workspace is not None:
             self.workspace.mkdir(parents=True, exist_ok=True)
 
@@ -26,16 +29,19 @@ class ListFilesTool(Tool):
         requested_path = str(arguments.get("path", ".")).strip() or "."
         try:
             path = self.resolve_path(requested_path)
-            entries = sorted(path.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower()))
+            raw = file_process.list_dir(path,
+                                        run_as_user=self.run_as_user)
         except ValueError as error:
             return f"Could not list files: {error}"
         except OSError as error:
             return f"Could not list files: {error}"
 
+        entries = sorted(raw, key=lambda item: (not item[1], item[0].lower()))
+
         lines = [f"Files in {requested_path}:"]
-        for entry in entries:
-            name = entry.name + "/" if entry.is_dir() else entry.name
-            lines.append(f"- {name}")
+        for name, is_dir in entries:
+            label = name + "/" if is_dir else name
+            lines.append(f"- {label}")
 
         if len(lines) == 1:
             lines.append("(empty)")
@@ -62,4 +68,9 @@ def create_tool(config, services=None):
     services = services or {}
     workspace = services.get("workspace")
     restrict_to_workspace = config.get("restrictToWorkspace", services.get("restrict_to_workspace", True))
-    return ListFilesTool(workspace=workspace, restrict_to_workspace=bool(restrict_to_workspace))
+    run_as_user = services.get("run_as_user")
+    return ListFilesTool(
+        workspace=workspace,
+        restrict_to_workspace=bool(restrict_to_workspace),
+        run_as_user=run_as_user,
+    )

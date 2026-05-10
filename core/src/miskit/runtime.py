@@ -51,6 +51,10 @@ def build_runner(config, instance, services=None):
         "restrict_to_workspace",
         config.section("workspace").get("restrictToWorkspace", True),
     )
+    services.setdefault(
+        "run_as_user",
+        config.section("security").get("runAsUser"),
+    )
 
     context_config = config.section("context")
     provider_config = dict(config.section("provider"))

@@ -138,5 +138,5 @@ def create_tool(config, services=None):
         timeout=float(config.get("timeout", _DEFAULT_TIMEOUT)),
         max_output_chars=int(config.get("maxOutputChars",
                                         _DEFAULT_MAX_OUTPUT_CHARS)),
-        run_as_user=config.get("runAsUser"),
+        run_as_user=services.get("run_as_user"),
     )
