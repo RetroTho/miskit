@@ -6,6 +6,7 @@ from miskit.message import Message
 
 # Default cap on how many times the model may answer with tool calls in one user turn (each time: run tools, then ask again).
 DEFAULT_MAX_TOOL_ROUNDS = 20
+_CONTEXT_USAGE_LIMIT = 0.8
 
 
 def runtime_metadata():
@@ -52,6 +53,7 @@ class Runner:
 
     async def run_turn(self, messages, log_tools=False):
         messages = self._messages_for_model(messages)
+        turn_start = len(self.conversation.messages) - 1 if log_tools else 0
 
         # A model may chain several tool rounds before answering.
         for _ in range(self.max_tool_rounds):
@@ -72,6 +74,17 @@ class Runner:
                 messages.append(tool_result)
                 if log_tools:
                     self.conversation.add(tool_result)
+
+            if log_tools and self._context_nearly_full(messages):
+                if self.compactor is not None and self.history is not None:
+                    await self._compact_for_overflow(turn_start)
+                    messages = self._messages_for_model(list(self.conversation.messages))
+                else:
+                    return Message(
+                        "assistant",
+                        "I need to stop here because the conversation context is nearly full. "
+                        "Please start a new conversation to continue.",
+                    )
 
         raise ValueError(
             f"model kept asking for tools after {self.max_tool_rounds} rounds "
@@ -186,6 +199,27 @@ class Runner:
                 messages[index] = active_message
                 break
         return messages
+
+    async def _compact_for_overflow(self, turn_start):
+        prior = self.conversation.messages[:turn_start]
+        current_turn = self.conversation.messages[turn_start:]
+        if not prior:
+            return
+        old_messages, recent = self.compactor.split(prior)
+        if not old_messages:
+            return
+        summary = await self.summarize(old_messages)
+        self.history.archive()
+        self.conversation.messages = [self.compactor.summary_message(summary)] + recent + current_turn
+        self.history.write(self.conversation.messages)
+        self._logged_count = len(self.conversation.messages)
+        self._last_prompt_tokens = None
+
+    def _context_nearly_full(self, messages):
+        if self.compactor is None:
+            return False
+        tokens = self.compactor.estimate_tokens(messages)
+        return tokens >= self.compactor.context_tokens * _CONTEXT_USAGE_LIMIT
 
     def run_tool(self, tool_call):
         for tool in self.tools:
