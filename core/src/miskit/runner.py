@@ -144,11 +144,15 @@ class Runner:
             await self.dream.run_once()
 
     async def summarize(self, messages):
-        prompt = self.compactor.summary_prompt(messages)
-        reply = await self.model.complete([Message("user", prompt)])
-        if reply.role != "assistant":
-            raise ValueError("model must return an assistant message")
-        return reply.content
+        chunks = self.compactor.split_for_summary(messages)
+        summary = ""
+        for chunk in chunks:
+            prompt = self.compactor.summary_prompt(chunk, prior_summary=summary)
+            reply = await self.model.complete([Message("user", prompt)])
+            if reply.role != "assistant":
+                raise ValueError("model must return an assistant message")
+            summary = reply.content
+        return summary
 
     def log_conversation(self):
         if self.history is not None:

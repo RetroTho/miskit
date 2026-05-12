@@ -7,7 +7,6 @@ from miskit.message import Message
 from miskit.runner import Runner
 from miskit.tools.memory import MemoryTool
 
-
 @dataclass
 class DreamResult:
     processed: list[str]
@@ -15,12 +14,13 @@ class DreamResult:
 
 
 class Dream:
-    def __init__(self, model, memory, archive_dir, state_path, max_archives=None):
+    def __init__(self, model, memory, archive_dir, state_path, max_archives=None, max_chunk_chars=24_000):
         self.model = model
         self.memory = memory
         self.archive_dir = Path(archive_dir)
         self.state_path = Path(state_path)
         self.max_archives = max_archives
+        self.max_chunk_chars = max_chunk_chars
 
     async def run_once(self):
         state = self.load_state()
@@ -54,11 +54,14 @@ class Dream:
     async def process_archive(self, path):
         memory_tool = MemoryTool(self.memory)
         runner = Runner(self.model, tools=[memory_tool])
-        messages = [
-            Message("system", self.system_prompt()),
-            Message("user", self.archive_prompt(path)),
-        ]
-        await runner.run_turn(messages)
+        archive_messages = self.read_archive(path)
+        chunks = self._chunk_messages(archive_messages)
+        for index, chunk in enumerate(chunks):
+            messages = [
+                Message("system", self.system_prompt()),
+                Message("user", self._archive_prompt(path, chunk, index + 1, len(chunks))),
+            ]
+            await runner.run_turn(messages)
         return len(memory_tool.added)
 
     def system_prompt(self):
@@ -81,21 +84,33 @@ class Dream:
             "If there is nothing important to save, do not call a tool."
         )
 
-    def archive_prompt(self, path):
+    def _chunk_messages(self, messages):
+        chunks = []
+        current = []
+        current_chars = 0
+        for message in messages:
+            text = self.format_message(message)
+            if current and message.role == "user" and current_chars + len(text) > self.max_chunk_chars:
+                chunks.append(current)
+                current = []
+                current_chars = 0
+            current.append(message)
+            current_chars += len(text)
+        if current:
+            chunks.append(current)
+        return chunks or [[]]
+
+    def _archive_prompt(self, path, messages, part, total):
         current_memory = self.memory.read().strip() or "(empty)"
-        transcript = self.format_archive(path)
+        transcript = "\n\n".join(self.format_message(m) for m in messages) or "(empty archive)"
+        label = Path(path).name
+        if total > 1:
+            label += f" (part {part} of {total})"
         return (
             f"Current memory:\n\n{current_memory}\n\n"
-            f"Archived session: {Path(path).name}\n\n"
+            f"Archived session: {label}\n\n"
             f"{transcript}"
         )
-
-    def format_archive(self, path):
-        messages = self.read_archive(path)
-        if not messages:
-            return "(empty archive)"
-
-        return "\n\n".join(self.format_message(message) for message in messages)
 
     def read_archive(self, path):
         reader = History(Path(path).parent)

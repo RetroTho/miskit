@@ -71,6 +71,7 @@ def build_runner(config, instance, services=None):
         memory,
         instance / "history" / "archive",
         instance / "dream.json",
+        max_chunk_chars=context_config.get("tokens", 8000) * 3,
     )
     return Runner(
         model,

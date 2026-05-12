@@ -2,7 +2,6 @@ import json
 
 from miskit.message import Message
 
-
 class Compactor:
     def __init__(self, context_tokens=8000, compact_at=0.5, keep_recent=10):
         self.context_tokens = context_tokens
@@ -62,15 +61,34 @@ class Compactor:
             return False
         return True
 
-    def summary_prompt(self, messages):
+    def split_for_summary(self, messages):
+        chunks = []
+        current = []
+        current_chars = 0
+        for message in messages:
+            text = self.format_message(message)
+            if current and message.role == "user" and current_chars + len(text) > self.context_tokens * 3:
+                chunks.append(current)
+                current = []
+                current_chars = 0
+            current.append(message)
+            current_chars += len(text)
+        if current:
+            chunks.append(current)
+        return chunks or [messages]
+
+    def summary_prompt(self, messages, prior_summary=""):
         text = "\n\n".join(self.format_message(message) for message in messages)
-        return (
+        parts = [
             "Summarize this conversation so Miskit can continue it later.\n\n"
             "Do not answer the conversation. Only write a compact summary for future turns.\n\n"
             "Include important names, facts, decisions, preferences, open tasks, "
-            "and any details the user may expect Miskit to remember. Keep it concise.\n\n"
-            f"{text}"
-        )
+            "and any details the user may expect Miskit to remember. Keep it concise."
+        ]
+        if prior_summary:
+            parts.append(f"Summary so far:\n\n{prior_summary}")
+        parts.append(text)
+        return "\n\n".join(parts)
 
     def summary_message(self, summary):
         content = (
