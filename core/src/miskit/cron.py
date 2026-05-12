@@ -256,6 +256,18 @@ class CronLog:
                     recent.append(json.loads(line))
         return list(recent)
 
+    def read_by_job_id(self, job_id):
+        self.setup()
+        result = None
+        with self.path.open(encoding="utf-8") as file:
+            for line in file:
+                line = line.strip()
+                if line:
+                    entry = json.loads(line)
+                    if entry.get("job_id") == job_id:
+                        result = entry
+        return result
+
     def _message_data(self, message):
         data = {"role": message.role, "content": message.content}
         if message.tool_calls:

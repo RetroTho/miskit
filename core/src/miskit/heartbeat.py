@@ -129,6 +129,18 @@ class HeartbeatLog:
                     recent.append(json.loads(line))
         return list(recent)
 
+    def read_by_timestamp(self, timestamp):
+        self.setup()
+        result = None
+        with self.path.open(encoding="utf-8") as file:
+            for line in file:
+                line = line.strip()
+                if line:
+                    entry = json.loads(line)
+                    if entry.get("timestamp") == timestamp:
+                        result = entry
+        return result
+
     def _message_data(self, message):
         data = {"role": message.role, "content": message.content}
         if message.tool_calls:

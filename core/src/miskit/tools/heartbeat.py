@@ -2,6 +2,12 @@ from miskit.heartbeat import HeartbeatLog, HeartbeatTasks
 from miskit.tool import Tool
 
 
+def _truncate(text, limit):
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[:limit] + f"\n\n[output truncated at {limit} characters]"
+
+
 class HeartbeatTool(Tool):
     name = "heartbeat"
     description = "Add, list, complete, and remove tasks in Miskit's heartbeat task file. Use history to view past heartbeat results."
@@ -25,13 +31,18 @@ class HeartbeatTool(Tool):
                 "type": "integer",
                 "description": "Number of past heartbeats to show (default 10). Only used with the history action.",
             },
+            "timestamp": {
+                "type": "string",
+                "description": "For history: show the full turn details for the heartbeat with this timestamp.",
+            },
         },
         "required": ["action"],
     }
 
-    def __init__(self, tasks, log=None):
+    def __init__(self, tasks, log=None, max_output_chars=20_000):
         self.tasks = tasks
         self.log = log
+        self.max_output_chars = max_output_chars
 
     def run(self, arguments):
         action = str(arguments.get("action", "")).strip()
@@ -100,6 +111,10 @@ class HeartbeatTool(Tool):
         if self.log is None:
             return "No heartbeat log available."
 
+        timestamp = str(arguments.get("timestamp", "")).strip()
+        if timestamp:
+            return self._history_detail(timestamp)
+
         limit = arguments.get("limit", 10)
         entries = self.log.read(limit=limit)
         if not entries:
@@ -109,13 +124,29 @@ class HeartbeatTool(Tool):
         for entry in entries:
             status = "quiet" if entry.get("quiet") else "responded"
             lines.append(f"\n[{entry['timestamp']}] ({status})")
-            for message in entry.get("messages", []):
-                role = message.get("role", "unknown")
-                content = message.get("content", "")
-                lines.append(f"  {role}: {content}")
-                for tc in message.get("tool_calls", []):
-                    lines.append(f"    -> tool call: {tc['name']}({tc['arguments']})")
+            for message in reversed(entry.get("messages", [])):
+                if message.get("role") == "assistant":
+                    lines.append(f"  {message.get('content', '').strip()}")
+                    break
         return "\n".join(lines)
+
+    def _history_detail(self, timestamp):
+        entry = self.log.read_by_timestamp(timestamp)
+        if entry is None:
+            return f"No heartbeat found with timestamp: {timestamp}"
+
+        status = "quiet" if entry.get("quiet") else "responded"
+        lines = [
+            f"Heartbeat: {entry['timestamp']} ({status})",
+        ]
+        for message in entry.get("messages", []):
+            role = message.get("role", "unknown")
+            if message.get("name"):
+                role = f"{role} {message['name']}"
+            lines.append(f"\n{role}: {message.get('content', '')}")
+            for tc in message.get("tool_calls", []):
+                lines.append(f"  -> tool call: {tc['name']}({tc['arguments']})")
+        return _truncate("\n".join(lines), self.max_output_chars)
 
 
 def create_tool(config, services=None):
@@ -125,4 +156,5 @@ def create_tool(config, services=None):
         raise ValueError("heartbeat tool requires a heartbeat path")
 
     heartbeat_log = services.get("heartbeat_log")
-    return HeartbeatTool(HeartbeatTasks(heartbeat_path), log=heartbeat_log)
+    context_tokens = services.get("context_tokens", 8000)
+    return HeartbeatTool(HeartbeatTasks(heartbeat_path), log=heartbeat_log, max_output_chars=context_tokens * 5 // 2)

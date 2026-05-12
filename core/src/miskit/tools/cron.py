@@ -1,6 +1,11 @@
 from miskit.heartbeat import HEARTBEAT_JOB_ID
 from miskit.tool import Tool
 
+def _truncate(text, limit):
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[:limit] + f"\n\n[output truncated at {limit} characters]"
+
 
 class CronTool(Tool):
     name = "cron"
@@ -35,7 +40,7 @@ class CronTool(Tool):
             },
             "job_id": {
                 "type": "string",
-                "description": "The job id to remove. The heartbeat job is managed by config and cannot be removed.",
+                "description": "A job id. For remove: the job to delete (heartbeat cannot be removed). For history: show the full turn details for that specific job run.",
             },
             "limit": {
                 "type": "integer",
@@ -45,9 +50,10 @@ class CronTool(Tool):
         "required": ["action"],
     }
 
-    def __init__(self, cron, log=None):
+    def __init__(self, cron, log=None, max_output_chars=20_000):
         self.cron = cron
         self.log = log
+        self.max_output_chars = max_output_chars
 
     def run(self, arguments):
         action = str(arguments.get("action", "")).strip()
@@ -129,6 +135,10 @@ class CronTool(Tool):
         if self.log is None:
             return "No cron log available."
 
+        job_id = str(arguments.get("job_id", "")).strip()
+        if job_id:
+            return self._history_detail(job_id)
+
         limit = arguments.get("limit", 10)
         entries = self.log.read(limit=limit)
         if not entries:
@@ -137,13 +147,29 @@ class CronTool(Tool):
         lines = [f"Last {len(entries)} cron job(s):"]
         for entry in entries:
             lines.append(f"\n[{entry['timestamp']}] {entry['job_name']} (id: {entry['job_id']})")
-            for message in entry.get("messages", []):
-                role = message.get("role", "unknown")
-                content = message.get("content", "")
-                lines.append(f"  {role}: {content}")
-                for tc in message.get("tool_calls", []):
-                    lines.append(f"    -> tool call: {tc['name']}({tc['arguments']})")
+            for message in reversed(entry.get("messages", [])):
+                if message.get("role") == "assistant":
+                    lines.append(f"  {message.get('content', '').strip()}")
+                    break
         return "\n".join(lines)
+
+    def _history_detail(self, job_id):
+        entry = self.log.read_by_job_id(job_id)
+        if entry is None:
+            return f"No cron job found with id: {job_id}"
+
+        lines = [
+            f"Cron job: {entry['job_name']} (id: {entry['job_id']})",
+            f"Timestamp: {entry['timestamp']}",
+        ]
+        for message in entry.get("messages", []):
+            role = message.get("role", "unknown")
+            if message.get("name"):
+                role = f"{role} {message['name']}"
+            lines.append(f"\n{role}: {message.get('content', '')}")
+            for tc in message.get("tool_calls", []):
+                lines.append(f"  -> tool call: {tc['name']}({tc['arguments']})")
+        return _truncate("\n".join(lines), self.max_output_chars)
 
 
 def create_tool(config, services=None):
@@ -152,4 +178,5 @@ def create_tool(config, services=None):
     if cron is None:
         raise ValueError("cron tool requires a cron service")
 
-    return CronTool(cron, log=services.get("cron_log"))
+    context_tokens = services.get("context_tokens", 8000)
+    return CronTool(cron, log=services.get("cron_log"), max_output_chars=context_tokens * 5 // 2)

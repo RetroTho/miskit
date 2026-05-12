@@ -14,7 +14,7 @@ class DreamResult:
 
 
 class Dream:
-    def __init__(self, model, memory, archive_dir, state_path, max_archives=None, max_chunk_chars=24_000):
+    def __init__(self, model, memory, archive_dir, state_path, max_archives=None, max_chunk_chars=20_000):
         self.model = model
         self.memory = memory
         self.archive_dir = Path(archive_dir)

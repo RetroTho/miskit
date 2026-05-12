@@ -74,7 +74,7 @@ class Compactor:
         return True
 
     def split_for_summary(self, messages, reserved_chars=0):
-        max_chars = max(1, self.context_tokens * 3 - reserved_chars)
+        max_chars = max(1, self.context_tokens * 5 // 2 - reserved_chars)
         chunks = []
         current = []
         current_chars = 0

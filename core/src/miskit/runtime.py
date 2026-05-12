@@ -47,6 +47,7 @@ def build_runner(config, instance, services=None):
     services = dict(services or {})
     services.setdefault("memory", memory)
     services.setdefault("image_store", image_store)
+    services.setdefault("context_tokens", context_config.get("tokens", 8000))
     services.setdefault("heartbeat_path", heartbeat_path(instance))
     services.setdefault("heartbeat_log", HeartbeatLog(heartbeat_log_path(instance)))
     services.setdefault("cron_log", CronLog(cron_log_path(instance)))
@@ -72,7 +73,7 @@ def build_runner(config, instance, services=None):
         memory,
         instance / "history" / "archive",
         instance / "dream.json",
-        max_chunk_chars=context_config.get("tokens", 8000) * 3,
+        max_chunk_chars=context_config.get("tokens", 8000) * 5 // 2,
     )
     return Runner(
         model,
