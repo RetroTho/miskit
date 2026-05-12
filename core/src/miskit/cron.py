@@ -1,6 +1,7 @@
 import asyncio
 import json
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timedelta
@@ -223,3 +224,45 @@ class CronService:
     def _wake(self):
         if self._changed is not None:
             self._changed.set()
+
+
+class CronLog:
+    def __init__(self, path):
+        self.path = Path(path)
+
+    def setup(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists():
+            self.path.write_text("", encoding="utf-8")
+
+    def log(self, timestamp, job_id, job_name, messages):
+        self.setup()
+        entry = {
+            "timestamp": timestamp,
+            "job_id": job_id,
+            "job_name": job_name,
+            "messages": [self._message_data(message) for message in messages],
+        }
+        with self.path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(entry) + "\n")
+
+    def read(self, limit=10):
+        self.setup()
+        recent = deque(maxlen=limit)
+        with self.path.open(encoding="utf-8") as file:
+            for line in file:
+                line = line.strip()
+                if line:
+                    recent.append(json.loads(line))
+        return list(recent)
+
+    def _message_data(self, message):
+        data = {"role": message.role, "content": message.content}
+        if message.tool_calls:
+            data["tool_calls"] = [
+                {"name": tc.name, "arguments": tc.arguments}
+                for tc in message.tool_calls
+            ]
+        if message.name:
+            data["name"] = message.name
+        return data

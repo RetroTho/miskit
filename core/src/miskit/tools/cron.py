@@ -10,8 +10,8 @@ class CronTool(Tool):
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["add", "list", "remove"],
-                "description": "Use add to schedule a task, list to show tasks, or remove to delete one.",
+                "enum": ["add", "list", "remove", "history"],
+                "description": "Use add to schedule a task, list to show tasks, remove to delete one, or history to view past cron job results.",
             },
             "message": {
                 "type": "string",
@@ -37,12 +37,17 @@ class CronTool(Tool):
                 "type": "string",
                 "description": "The job id to remove. The heartbeat job is managed by config and cannot be removed.",
             },
+            "limit": {
+                "type": "integer",
+                "description": "Number of past cron jobs to show (default 10). Only used with the history action.",
+            },
         },
         "required": ["action"],
     }
 
-    def __init__(self, cron):
+    def __init__(self, cron, log=None):
         self.cron = cron
+        self.log = log
 
     def run(self, arguments):
         action = str(arguments.get("action", "")).strip()
@@ -53,8 +58,10 @@ class CronTool(Tool):
             return self._list()
         if action == "remove":
             return self._remove(arguments)
+        if action == "history":
+            return self._history(arguments)
 
-        return "Unknown cron action. Use add, list, or remove."
+        return "Unknown cron action. Use add, list, remove, or history."
 
     def _add(self, arguments):
         message = str(arguments.get("message", "")).strip()
@@ -118,6 +125,26 @@ class CronTool(Tool):
 
         return f"Job {job_id} not found."
 
+    def _history(self, arguments):
+        if self.log is None:
+            return "No cron log available."
+
+        limit = arguments.get("limit", 10)
+        entries = self.log.read(limit=limit)
+        if not entries:
+            return "No past cron jobs recorded."
+
+        lines = [f"Last {len(entries)} cron job(s):"]
+        for entry in entries:
+            lines.append(f"\n[{entry['timestamp']}] {entry['job_name']} (id: {entry['job_id']})")
+            for message in entry.get("messages", []):
+                role = message.get("role", "unknown")
+                content = message.get("content", "")
+                lines.append(f"  {role}: {content}")
+                for tc in message.get("tool_calls", []):
+                    lines.append(f"    -> tool call: {tc['name']}({tc['arguments']})")
+        return "\n".join(lines)
+
 
 def create_tool(config, services=None):
     services = services or {}
@@ -125,4 +152,4 @@ def create_tool(config, services=None):
     if cron is None:
         raise ValueError("cron tool requires a cron service")
 
-    return CronTool(cron)
+    return CronTool(cron, log=services.get("cron_log"))

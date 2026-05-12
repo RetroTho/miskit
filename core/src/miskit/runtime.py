@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from miskit import Channel, Compactor, Config, CronService, Dream, History, ImageStore, Memory, Model, Runner, Tool
+from miskit import Channel, Compactor, Config, CronLog, CronService, Dream, History, ImageStore, Memory, Model, Runner, Tool
 from miskit.message import Message
 from miskit.runner import DEFAULT_MAX_TOOL_ROUNDS
 from miskit.heartbeat import HEARTBEAT_JOB_ID, HEARTBEAT_QUIET_REPLY, HeartbeatLog, HeartbeatTasks
@@ -49,6 +49,7 @@ def build_runner(config, instance, services=None):
     services.setdefault("image_store", image_store)
     services.setdefault("heartbeat_path", heartbeat_path(instance))
     services.setdefault("heartbeat_log", HeartbeatLog(heartbeat_log_path(instance)))
+    services.setdefault("cron_log", CronLog(cron_log_path(instance)))
     services.setdefault("workspace", workspace)
     services.setdefault(
         "restrict_to_workspace",
@@ -105,6 +106,10 @@ def heartbeat_log_path(instance):
     return Path(instance).expanduser() / "cron" / "heartbeats.jsonl"
 
 
+def cron_log_path(instance):
+    return Path(instance).expanduser() / "cron" / "cron.jsonl"
+
+
 def setup_heartbeat_cron(config, instance, cron):
     section = config.section("heartbeat")
     if not section.get("enabled", False):
@@ -134,7 +139,7 @@ def setup_heartbeat_cron(config, instance, cron):
     )
 
 
-def connect_cron(cron, runner, write=print, channel=None, heartbeat_file=None, heartbeat_log=None):
+def connect_cron(cron, runner, write=print, channel=None, heartbeat_file=None, heartbeat_log=None, cron_log=None):
     async def on_cron_job(job):
         content = cron_job_prompt(job, heartbeat_file=heartbeat_file)
         if not content:
@@ -144,6 +149,22 @@ def connect_cron(cron, runner, write=print, channel=None, heartbeat_file=None, h
         reply = await runner.chat(content)
 
         if job.id != HEARTBEAT_JOB_ID:
+            timestamp = datetime.now().astimezone().isoformat()
+            turn_messages = runner.conversation.messages[snapshot:]
+            runner.rollback_conversation(snapshot)
+
+            if cron_log is not None:
+                cron_log.log(timestamp, job.id, job.name, turn_messages)
+
+            marker = Message(
+                "user",
+                f"[Cron {job.name} {timestamp}] "
+                f"Use cron(action=\"history\") to review the full details.",
+            )
+            runner.conversation.add(marker)
+            runner.conversation.add(reply)
+            runner.log_conversation()
+
             if channel is None:
                 write(f"Cron: {reply.content}")
             else:

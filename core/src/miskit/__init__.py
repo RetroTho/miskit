@@ -3,6 +3,7 @@ from miskit.channel import Channel
 from miskit.compaction import Compactor
 from miskit.conversation import Conversation
 from miskit.cron import CronJob
+from miskit.cron import CronLog
 from miskit.cron import CronService
 from miskit.dream import Dream
 from miskit.dream import DreamResult
