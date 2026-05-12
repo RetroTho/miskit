@@ -55,7 +55,9 @@ class Dream:
         memory_tool = MemoryTool(self.memory)
         runner = Runner(self.model, tools=[memory_tool])
         archive_messages = self.read_archive(path)
-        chunks = self._chunk_messages(archive_messages)
+        overhead_chars = len(self.system_prompt()) + len(self.memory.read())
+        chunk_chars = max(1, self.max_chunk_chars - overhead_chars)
+        chunks = self._chunk_messages(archive_messages, max_chars=chunk_chars)
         for index, chunk in enumerate(chunks):
             messages = [
                 Message("system", self.system_prompt()),
@@ -84,13 +86,15 @@ class Dream:
             "If there is nothing important to save, do not call a tool."
         )
 
-    def _chunk_messages(self, messages):
+    def _chunk_messages(self, messages, max_chars=None):
+        if max_chars is None:
+            max_chars = self.max_chunk_chars
         chunks = []
         current = []
         current_chars = 0
         for message in messages:
             text = self.format_message(message)
-            if current and message.role == "user" and current_chars + len(text) > self.max_chunk_chars:
+            if current and message.role == "user" and current_chars + len(text) > max_chars:
                 chunks.append(current)
                 current = []
                 current_chars = 0
