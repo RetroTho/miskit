@@ -50,7 +50,7 @@ class Compactor:
         if not isinstance(text, str):
             text = str(text)
 
-        return max(1, len(text) // 3)
+        return max(1, len(text) * 2 // 5)
 
     def split(self, messages):
         messages = list(messages)
