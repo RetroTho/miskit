@@ -39,7 +39,7 @@ class Compactor:
         return total
 
     def estimate_text(self, text):
-        return max(1, len(text) // 4)
+        return max(1, len(text) // 3)
 
     def split(self, messages):
         messages = list(messages)
