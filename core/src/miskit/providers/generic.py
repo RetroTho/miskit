@@ -2,6 +2,8 @@ import asyncio
 import base64
 import json
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.error import URLError
 from urllib.request import Request
 from urllib.request import urlopen
 
@@ -39,8 +41,14 @@ class GenericModel(Model):
             method="POST",
         )
 
-        with urlopen(request) as response:
-            text = response.read().decode("utf-8")
+        try:
+            with urlopen(request) as response:
+                text = response.read().decode("utf-8")
+        except HTTPError as error:
+            body = error.read().decode("utf-8")
+            raise ValueError(f"API error {error.code}: {body}") from error
+        except URLError as error:
+            raise ValueError(f"API connection error: {error.reason}") from error
 
         return json.loads(text)
 
