@@ -1,5 +1,7 @@
 from pathlib import Path
 
+_MAX_ENTRIES_PER_CATEGORY = 50
+
 
 class Memory:
     identity = """# Miskit
@@ -53,6 +55,12 @@ Do not mention the memory unless it helps answer the user."""
 
     def add(self, category, text):
         self._check_category(category)
+
+        if len(self.entries(category)) >= _MAX_ENTRIES_PER_CATEGORY:
+            raise ValueError(
+                f"{category} memory is full ({_MAX_ENTRIES_PER_CATEGORY} entries). "
+                "Remove or update an existing entry before adding a new one."
+            )
 
         self.setup()
         with self._path(category).open("a", encoding="utf-8") as file:
