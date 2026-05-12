@@ -1,4 +1,5 @@
 import json
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -120,11 +121,13 @@ class HeartbeatLog:
 
     def read(self, limit=10):
         self.setup()
-        entries = []
-        for line in self.path.read_text(encoding="utf-8").splitlines():
-            if line:
-                entries.append(json.loads(line))
-        return entries[-limit:]
+        recent = deque(maxlen=limit)
+        with self.path.open(encoding="utf-8") as file:
+            for line in file:
+                line = line.strip()
+                if line:
+                    recent.append(json.loads(line))
+        return list(recent)
 
     def _message_data(self, message):
         data = {"role": message.role, "content": message.content}
