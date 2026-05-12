@@ -38,6 +38,18 @@ class Compactor:
         return total
 
     def estimate_text(self, text):
+        if isinstance(text, list):
+            total = 0
+            for part in text:
+                if part.get("type") == "text":
+                    total += max(1, len(part.get("text", "")) // 3)
+                elif part.get("type") == "image":
+                    total += 2500
+            return max(1, total)
+
+        if not isinstance(text, str):
+            text = str(text)
+
         return max(1, len(text) // 3)
 
     def split(self, messages):
