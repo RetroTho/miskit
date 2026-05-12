@@ -3,6 +3,8 @@ from pathlib import Path
 from miskit.tool import Tool
 from miskit import file_process
 
+_DEFAULT_MAX_ENTRIES = 200
+
 
 class ListFilesTool(Tool):
     name = "list_files"
@@ -18,10 +20,11 @@ class ListFilesTool(Tool):
     }
 
     def __init__(self, workspace=None, restrict_to_workspace=True,
-                 run_as_user=None):
+                 run_as_user=None, max_entries=_DEFAULT_MAX_ENTRIES):
         self.workspace = Path(workspace).expanduser() if workspace is not None else None
         self.restrict_to_workspace = restrict_to_workspace
         self.run_as_user = run_as_user
+        self.max_entries = max_entries
         if self.workspace is not None:
             self.workspace.mkdir(parents=True, exist_ok=True)
 
@@ -37,6 +40,8 @@ class ListFilesTool(Tool):
             return f"Could not list files: {error}"
 
         entries = sorted(raw, key=lambda item: (not item[1], item[0].lower()))
+        total = len(entries)
+        entries = entries[:self.max_entries]
 
         lines = [f"Files in {requested_path}:"]
         for name, is_dir in entries:
@@ -45,6 +50,9 @@ class ListFilesTool(Tool):
 
         if len(lines) == 1:
             lines.append("(empty)")
+
+        if total > self.max_entries:
+            lines.append(f"\n[{total - self.max_entries} more entries not shown]")
 
         return "\n".join(lines)
 
@@ -73,4 +81,5 @@ def create_tool(config, services=None):
         workspace=workspace,
         restrict_to_workspace=bool(restrict_to_workspace),
         run_as_user=run_as_user,
+        max_entries=int(config.get("maxEntries", _DEFAULT_MAX_ENTRIES)),
     )
