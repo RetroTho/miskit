@@ -166,9 +166,12 @@ class Runner:
             await self.dream.run_once()
 
     async def summarize(self, messages):
-        chunks = self.compactor.split_for_summary(messages)
         summary = ""
-        for chunk in chunks:
+        remaining = list(messages)
+        while remaining:
+            chunks = self.compactor.split_for_summary(remaining, reserved_chars=len(summary))
+            chunk = chunks[0]
+            remaining = remaining[len(chunk):]
             prompt = self.compactor.summary_prompt(chunk, prior_summary=summary)
             reply = await self.model.complete([Message("user", prompt)])
             if reply.role != "assistant":
