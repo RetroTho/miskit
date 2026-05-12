@@ -124,11 +124,20 @@ class Runner:
                 self.request_dream()
             return message
 
+    def _messages_for_compaction_check(self):
+        messages = list(self.conversation.messages)
+        if self.memory is not None:
+            system_prompt = self.memory.system_prompt()
+            if system_prompt:
+                messages = [Message("system", system_prompt)] + messages
+        return messages
+
     async def compact_if_needed(self):
         if self.compactor is None or self.history is None:
             return False
 
-        if not self.compactor.should_compact(self.conversation.messages, self._last_prompt_tokens):
+        messages = self._messages_for_compaction_check()
+        if not self.compactor.should_compact(messages, self._last_prompt_tokens):
             return False
 
         old_messages, recent_messages = self.compactor.split(self.conversation.messages)
