@@ -1,6 +1,7 @@
 from pathlib import Path
 
 _MAX_ENTRIES_PER_CATEGORY = 50
+_MAX_ENTRY_LENGTH = 500
 
 
 class Memory:
@@ -56,6 +57,12 @@ Do not mention the memory unless it helps answer the user."""
     def add(self, category, text):
         self._check_category(category)
 
+        if len(text) > _MAX_ENTRY_LENGTH:
+            raise ValueError(
+                f"memory entry is too long ({len(text)} characters). "
+                f"Entries must be {_MAX_ENTRY_LENGTH} characters or fewer."
+            )
+
         if len(self.entries(category)) >= _MAX_ENTRIES_PER_CATEGORY:
             raise ValueError(
                 f"{category} memory is full ({_MAX_ENTRIES_PER_CATEGORY} entries). "
@@ -96,6 +103,12 @@ Do not mention the memory unless it helps answer the user."""
         text = str(text).strip()
         if not text:
             raise ValueError("memory update requires text")
+
+        if len(text) > _MAX_ENTRY_LENGTH:
+            raise ValueError(
+                f"memory entry is too long ({len(text)} characters). "
+                f"Entries must be {_MAX_ENTRY_LENGTH} characters or fewer."
+            )
 
         entry = self._entry(memory_id)
         lines = self._path(entry["category"]).read_text(encoding="utf-8").splitlines()
