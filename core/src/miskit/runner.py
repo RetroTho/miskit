@@ -62,6 +62,18 @@ class Runner:
         messages = self._messages_for_model(messages)
         turn_start = len(self.conversation.messages) - 1 if log_tools else 0
 
+        # Pre-flight: check context size before the first model call.
+        if log_tools and self._context_nearly_full(messages):
+            if self.compactor is not None and self.history is not None:
+                await self._compact_for_overflow(turn_start)
+                messages = self._messages_for_model(list(self.conversation.messages))
+            if self._context_nearly_full(messages):
+                return Message(
+                    "assistant",
+                    "I need to stop here because the conversation context is nearly full. "
+                    "Please start a new conversation to continue.",
+                )
+
         # A model may chain several tool rounds before answering.
         for _ in range(self.max_tool_rounds):
             message = await self.complete(messages)
