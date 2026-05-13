@@ -207,7 +207,10 @@ class Runner:
     async def run_dream_requests(self):
         while self._dream_requested:
             self._dream_requested = False
-            await self.dream.run_once()
+            try:
+                await self.dream.run_once()
+            except Exception:
+                pass
 
     async def summarize(self, messages):
         summary = ""
