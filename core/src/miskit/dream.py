@@ -94,21 +94,25 @@ class Dream:
         current_chars = 0
         for message in messages:
             text = self.format_message(message)
-            for piece in self._text_pieces(text, max_chars):
-                if current and current_chars + len(piece) > max_chars:
-                    chunks.append(current)
-                    current = []
-                    current_chars = 0
-                current.append(piece)
-                current_chars += len(piece)
+            if current and message.role == "user" and current_chars + len(text) > max_chars:
+                chunks.append(current)
+                current = []
+                current_chars = 0
+            current.append(message)
+            # Cap per-message accounting so one huge message doesn't block the next split.
+            current_chars += min(len(text), max_chars)
         if current:
             chunks.append(current)
         return chunks or [[]]
 
     def _archive_prompt(self, path, messages, part, total):
         current_memory = self.memory.read().strip() or "(empty)"
+        max_chars = self.max_chunk_chars
         texts = []
-        for text in messages:
+        for m in messages:
+            text = self.format_message(m)
+            if len(text) > max_chars:
+                text = text[:max_chars] + "\n[message truncated for summary]"
             texts.append(text)
         transcript = "\n\n".join(texts) or "(empty archive)"
         label = Path(path).name
@@ -119,14 +123,6 @@ class Dream:
             f"Archived session: {label}\n\n"
             f"{transcript}"
         )
-
-    def _text_pieces(self, text, max_chars):
-        if len(text) <= max_chars:
-            return [text]
-        return [
-            text[index:index + max_chars]
-            for index in range(0, len(text), max_chars)
-        ]
 
     def read_archive(self, path):
         reader = History(Path(path).parent)

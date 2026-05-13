@@ -3,7 +3,6 @@ import base64
 import json
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from miskit.message import Message, ToolCall
@@ -46,8 +45,6 @@ class CodexModel(Model):
                 text = response.read().decode("utf-8", errors="replace")
         except HTTPError as error:
             raise RuntimeError(_codex_error_message(error)) from error
-        except URLError as error:
-            raise RuntimeError(f"Codex connection error: {error.reason}") from error
         return _parse_sse(text)
 
     def _body(self, messages, tools=None):

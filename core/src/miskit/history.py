@@ -31,17 +31,9 @@ class History:
         self.setup()
         messages = []
 
-        lines = self.path().read_text(encoding="utf-8").splitlines()
-        for line_number, line in enumerate(lines, start=1):
+        for line in self.path().read_text(encoding="utf-8").splitlines():
             if line:
-                try:
-                    data = json.loads(line)
-                    messages.append(self.message_from_data(data))
-                except (json.JSONDecodeError, TypeError, ValueError) as error:
-                    messages.append(Message(
-                        "system",
-                        f"[Could not read history line {line_number}: {error}]\n{line}",
-                    ))
+                messages.append(self.message_from_data(json.loads(line)))
 
         return messages
 
@@ -79,16 +71,8 @@ class History:
         return data
 
     def message_from_data(self, data):
-        if not isinstance(data, dict):
-            raise ValueError("history entry must be a JSON object")
-
         tool_calls = []
-        raw_tool_calls = data.get("tool_calls", [])
-        if not isinstance(raw_tool_calls, list):
-            raw_tool_calls = []
-        for tool_call in raw_tool_calls:
-            if not isinstance(tool_call, dict):
-                continue
+        for tool_call in data.get("tool_calls", []):
             tool_calls.append(ToolCall(
                 tool_call.get("id"),
                 tool_call.get("name"),

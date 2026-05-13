@@ -7,9 +7,9 @@ _COMPACT_TOOL_OUTPUT_CHARS = 200
 
 class Compactor:
     def __init__(self, context_tokens=8000, compact_at=0.5, keep_recent=10):
-        self.context_tokens = _positive_int(context_tokens, "context.tokens")
-        self.compact_at = _compact_at(compact_at)
-        self.keep_recent = _positive_int(keep_recent, "context.keepRecent")
+        self.context_tokens = context_tokens
+        self.compact_at = compact_at
+        self.keep_recent = keep_recent
 
     @classmethod
     def from_config(cls, config):
@@ -104,68 +104,33 @@ class Compactor:
                         f"\n\n[truncated, id: {store_id}"
                         f" -- use read_more(id=\"{store_id}\", offset={_COMPACT_TOOL_OUTPUT_CHARS}) to retrieve the rest]"
                     )
-                    result.append(Message(
-                        message.role,
-                        content,
-                        tool_call_id=message.tool_call_id,
-                        name=message.name,
-                    ))
                 else:
-                    result.append(message)
+                    content = message.content[:_COMPACT_TOOL_OUTPUT_CHARS] + "\n\n[truncated]"
+                result.append(Message(message.role, content, tool_call_id=message.tool_call_id, name=message.name))
             else:
                 result.append(message)
         return result
 
     def split_for_summary(self, messages, reserved_chars=0):
-        chunks = []
-        remaining = list(messages)
-        while remaining:
-            chunk, remaining = self.take_for_summary(remaining, reserved_chars=reserved_chars)
-            chunks.append(chunk)
-            reserved_chars = 0
-        return chunks or [messages]
-
-    def take_for_summary(self, messages, reserved_chars=0):
         max_chars = max(1, self.context_tokens * 5 // 2 - reserved_chars)
+        chunks = []
         current = []
         current_chars = 0
-        remaining = list(messages)
-
-        while remaining:
-            message = remaining[0]
-            text = self.summary_text(message)
-
-            if current and current_chars + len(text) > max_chars:
-                break
-
-            if len(text) > max_chars:
-                piece = text[:max_chars]
-                rest = text[max_chars:]
-                current.append(piece)
-                if rest:
-                    remaining[0] = rest
-                else:
-                    remaining = remaining[1:]
-                return current, remaining
-
+        for message in messages:
+            text = self.format_message(message)
+            if current and message.role == "user" and current_chars + len(text) > max_chars:
+                chunks.append(current)
+                current = []
+                current_chars = 0
             current.append(message)
-            current_chars += len(text)
-            remaining = remaining[1:]
-
-        if not current and remaining:
-            message = remaining[0]
-            text = self.summary_text(message)
-            piece = text[:max_chars]
-            rest = text[max_chars:]
-            current.append(piece)
-            if rest:
-                remaining[0] = rest
-            else:
-                remaining = remaining[1:]
-
-        return current, remaining
+            # Cap per-message accounting so one huge message doesn't block the next split.
+            current_chars += min(len(text), max_chars)
+        if current:
+            chunks.append(current)
+        return chunks or [messages]
 
     def summary_prompt(self, messages, prior_summary=""):
+        max_chars = self.context_tokens * 5 // 2
         parts = [
             "Summarize this conversation so Miskit can continue it later.\n\n"
             "Do not answer the conversation. Only write a compact summary for future turns.\n\n"
@@ -176,7 +141,10 @@ class Compactor:
             parts.append(f"Summary so far:\n\n{prior_summary}")
         texts = []
         for message in messages:
-            texts.append(self.summary_text(message))
+            text = self.format_message(message)
+            if len(text) > max_chars:
+                text = text[:max_chars] + "\n[message truncated for summary]"
+            texts.append(text)
         parts.append("\n\n".join(texts))
         return "\n\n".join(parts)
 
@@ -205,32 +173,3 @@ class Compactor:
                 calls.append(f"{tool_call.name}({json.dumps(tool_call.arguments)})")
             content = f"{content}\nTool calls: {', '.join(calls)}"
         return f"{label}: {content}"
-
-    def summary_text(self, message):
-        if isinstance(message, str):
-            return message
-        return self.format_message(message)
-
-
-def _positive_int(value, name):
-    try:
-        value = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{name} must be a positive integer") from error
-
-    if value <= 0:
-        raise ValueError(f"{name} must be a positive integer")
-
-    return value
-
-
-def _compact_at(value):
-    try:
-        value = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError("context.compactAt must be between 0 and 1") from error
-
-    if value <= 0 or value > 1:
-        raise ValueError("context.compactAt must be between 0 and 1")
-
-    return value
