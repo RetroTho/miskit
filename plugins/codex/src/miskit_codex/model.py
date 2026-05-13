@@ -89,11 +89,13 @@ class CodexModel(Model):
         return token.access, str(token.account_id)
 
     def _input(self, messages):
-        instructions = ""
+        system_parts = []
         input_items = []
         for index, message in enumerate(messages):
             if message.role == "system":
-                instructions = message.content
+                if isinstance(message.content, str) and message.content:
+                    system_parts.append(message.content)
+
             elif message.role == "user":
                 input_items.append({
                     "role": "user",
@@ -107,7 +109,7 @@ class CodexModel(Model):
                     "call_id": _split_tool_call_id(message.tool_call_id)[0],
                     "output": message.content,
                 })
-        return instructions, input_items
+        return "\n\n".join(system_parts), input_items
 
     def _assistant_input(self, message, index):
         items = []
