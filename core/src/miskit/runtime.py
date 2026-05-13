@@ -44,6 +44,10 @@ def build_runner(config, instance, services=None):
     history.setup()
     image_store.setup()
     workspace.mkdir(parents=True, exist_ok=True)
+    context_config = config.section("context")
+    provider_config = dict(config.section("provider"))
+    provider_config["maxTokens"] = context_config.get("outputTokens", 2000)
+
     services = dict(services or {})
     services.setdefault("memory", memory)
     services.setdefault("image_store", image_store)
@@ -60,10 +64,6 @@ def build_runner(config, instance, services=None):
         "run_as_user",
         config.section("security").get("runAsUser"),
     )
-
-    context_config = config.section("context")
-    provider_config = dict(config.section("provider"))
-    provider_config["maxTokens"] = context_config.get("outputTokens", 2000)
 
     model = Model.load(provider_config)
     compactor = Compactor.from_config(context_config)
