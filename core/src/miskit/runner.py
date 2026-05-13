@@ -18,6 +18,9 @@ def runtime_metadata():
     return f"[Runtime Metadata]\nCurrent Time: {current_time}\n[/Runtime Metadata]"
 
 
+DEFAULT_MAX_TOOL_OUTPUT_CHARS = 20_000
+
+
 class Runner:
     def __init__(
         self,
@@ -29,6 +32,8 @@ class Runner:
         compactor=None,
         dream=None,
         max_tool_rounds=DEFAULT_MAX_TOOL_ROUNDS,
+        truncation_store=None,
+        max_tool_output_chars=DEFAULT_MAX_TOOL_OUTPUT_CHARS,
     ):
         self.model = model
         self.memory = memory
@@ -37,6 +42,8 @@ class Runner:
         self.compactor = compactor
         self.dream = dream
         self.max_tool_rounds = max_tool_rounds
+        self.truncation_store = truncation_store
+        self.max_tool_output_chars = max_tool_output_chars
         self._last_prompt_tokens = None
         self._dream_requested = False
         self._dream_task = None
@@ -242,6 +249,22 @@ class Runner:
         for tool in self.tools:
             if tool.name == tool_call.name:
                 content = tool.run(tool_call.arguments)
+                content = self._truncate_output(content)
                 return Message("tool", content, tool_call_id=tool_call.id, name=tool_call.name)
 
         return Message("tool", f"Unknown tool: {tool_call.name}", tool_call_id=tool_call.id, name=tool_call.name)
+
+    def _truncate_output(self, content):
+        if not isinstance(content, str):
+            content = str(content)
+        limit = self.max_tool_output_chars
+        if limit <= 0 or len(content) <= limit:
+            return content
+        if self.truncation_store is not None:
+            store_id = self.truncation_store.save(content)
+            return (
+                content[:limit] +
+                f"\n\n[output truncated at {limit} characters, id: {store_id}"
+                f" -- use read_more(id=\"{store_id}\", offset={limit}) to retrieve the rest]"
+            )
+        return content[:limit] + f"\n\n[output truncated at {limit} characters]"

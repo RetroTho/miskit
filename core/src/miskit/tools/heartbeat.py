@@ -2,12 +2,6 @@ from miskit.heartbeat import HeartbeatLog, HeartbeatTasks
 from miskit.tool import Tool
 
 
-def _truncate(text, limit):
-    if limit <= 0 or len(text) <= limit:
-        return text
-    return text[:limit] + f"\n\n[output truncated at {limit} characters]"
-
-
 class HeartbeatTool(Tool):
     name = "heartbeat"
     description = "Add, list, complete, and remove tasks in Miskit's heartbeat task file. Use history to view past heartbeat results."
@@ -39,10 +33,9 @@ class HeartbeatTool(Tool):
         "required": ["action"],
     }
 
-    def __init__(self, tasks, log=None, max_output_chars=20_000):
+    def __init__(self, tasks, log=None):
         self.tasks = tasks
         self.log = log
-        self.max_output_chars = max_output_chars
 
     def run(self, arguments):
         action = str(arguments.get("action", "")).strip()
@@ -146,7 +139,7 @@ class HeartbeatTool(Tool):
             lines.append(f"\n{role}: {message.get('content', '')}")
             for tc in message.get("tool_calls", []):
                 lines.append(f"  -> tool call: {tc['name']}({tc['arguments']})")
-        return _truncate("\n".join(lines), self.max_output_chars)
+        return "\n".join(lines)
 
 
 def create_tool(config, services=None):
@@ -156,5 +149,4 @@ def create_tool(config, services=None):
         raise ValueError("heartbeat tool requires a heartbeat path")
 
     heartbeat_log = services.get("heartbeat_log")
-    context_tokens = services.get("context_tokens", 8000)
-    return HeartbeatTool(HeartbeatTasks(heartbeat_path), log=heartbeat_log, max_output_chars=context_tokens * 5 // 2)
+    return HeartbeatTool(HeartbeatTasks(heartbeat_path), log=heartbeat_log)

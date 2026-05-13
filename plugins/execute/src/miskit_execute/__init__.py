@@ -6,13 +6,6 @@ from miskit.tool import Tool
 # Runs subprocesses on the host — not sandboxed unless run_as_user is set.
 
 _DEFAULT_TIMEOUT = 60
-_DEFAULT_MAX_OUTPUT_CHARS = 20_000
-
-
-def _truncate(text, limit):
-    if limit <= 0 or len(text) <= limit:
-        return text
-    return text[:limit] + f"\n\n[output truncated at {limit} characters]"
 
 
 def _resolve_cwd(workspace, restrict, relative):
@@ -68,13 +61,10 @@ class ExecuteTool(Tool):
     }
 
     def __init__(self, workspace=None, restrict_to_workspace=True,
-                 timeout=_DEFAULT_TIMEOUT,
-                 max_output_chars=_DEFAULT_MAX_OUTPUT_CHARS,
-                 run_as_user=None):
+                 timeout=_DEFAULT_TIMEOUT, run_as_user=None):
         self.workspace = workspace
         self.restrict_to_workspace = restrict_to_workspace
         self.timeout = timeout
-        self.max_output_chars = max_output_chars
         self.run_as_user = run_as_user
 
     def run(self, arguments):
@@ -125,7 +115,7 @@ class ExecuteTool(Tool):
         if result.stderr:
             parts.extend(["", "stderr:", result.stderr.rstrip()])
 
-        return _truncate("\n".join(parts), self.max_output_chars)
+        return "\n".join(parts)
 
 
 def create_tool(config, services=None):
@@ -136,7 +126,5 @@ def create_tool(config, services=None):
             config.get("restrictToWorkspace",
                         services.get("restrict_to_workspace", True))),
         timeout=float(config.get("timeout", _DEFAULT_TIMEOUT)),
-        max_output_chars=int(config.get("maxOutputChars",
-                                        _DEFAULT_MAX_OUTPUT_CHARS)),
         run_as_user=services.get("run_as_user"),
     )

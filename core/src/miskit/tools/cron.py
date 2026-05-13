@@ -1,11 +1,6 @@
 from miskit.heartbeat import HEARTBEAT_JOB_ID
 from miskit.tool import Tool
 
-def _truncate(text, limit):
-    if limit <= 0 or len(text) <= limit:
-        return text
-    return text[:limit] + f"\n\n[output truncated at {limit} characters]"
-
 
 class CronTool(Tool):
     name = "cron"
@@ -50,10 +45,9 @@ class CronTool(Tool):
         "required": ["action"],
     }
 
-    def __init__(self, cron, log=None, max_output_chars=20_000):
+    def __init__(self, cron, log=None):
         self.cron = cron
         self.log = log
-        self.max_output_chars = max_output_chars
 
     def run(self, arguments):
         action = str(arguments.get("action", "")).strip()
@@ -169,7 +163,7 @@ class CronTool(Tool):
             lines.append(f"\n{role}: {message.get('content', '')}")
             for tc in message.get("tool_calls", []):
                 lines.append(f"  -> tool call: {tc['name']}({tc['arguments']})")
-        return _truncate("\n".join(lines), self.max_output_chars)
+        return "\n".join(lines)
 
 
 def create_tool(config, services=None):
@@ -178,5 +172,4 @@ def create_tool(config, services=None):
     if cron is None:
         raise ValueError("cron tool requires a cron service")
 
-    context_tokens = services.get("context_tokens", 8000)
-    return CronTool(cron, log=services.get("cron_log"), max_output_chars=context_tokens * 5 // 2)
+    return CronTool(cron, log=services.get("cron_log"))

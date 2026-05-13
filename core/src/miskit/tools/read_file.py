@@ -3,14 +3,6 @@ from pathlib import Path
 from miskit.tool import Tool
 from miskit import file_process
 
-_DEFAULT_MAX_OUTPUT_CHARS = 20_000
-
-
-def _truncate(text, limit):
-    if limit <= 0 or len(text) <= limit:
-        return text
-    return text[:limit] + f"\n\n[output truncated at {limit} characters]"
-
 
 class ReadFileTool(Tool):
     name = "read_file"
@@ -26,12 +18,10 @@ class ReadFileTool(Tool):
         "required": ["path"],
     }
 
-    def __init__(self, workspace=None, restrict_to_workspace=True,
-                 run_as_user=None, max_output_chars=_DEFAULT_MAX_OUTPUT_CHARS):
+    def __init__(self, workspace=None, restrict_to_workspace=True, run_as_user=None):
         self.workspace = Path(workspace).expanduser() if workspace is not None else None
         self.restrict_to_workspace = restrict_to_workspace
         self.run_as_user = run_as_user
-        self.max_output_chars = max_output_chars
         if self.workspace is not None:
             self.workspace.mkdir(parents=True, exist_ok=True)
 
@@ -50,7 +40,7 @@ class ReadFileTool(Tool):
         except UnicodeDecodeError:
             return "Could not read file: it is not a UTF-8 text file."
 
-        return _truncate(f"Contents of {requested_path}:\n\n{text}", self.max_output_chars)
+        return f"Contents of {requested_path}:\n\n{text}"
 
     def resolve_path(self, path):
         path = Path(path).expanduser()
@@ -77,5 +67,4 @@ def create_tool(config, services=None):
         workspace=workspace,
         restrict_to_workspace=bool(restrict_to_workspace),
         run_as_user=run_as_user,
-        max_output_chars=int(config.get("maxOutputChars", _DEFAULT_MAX_OUTPUT_CHARS)),
     )

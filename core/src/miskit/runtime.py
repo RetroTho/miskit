@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from miskit import Channel, Compactor, Config, CronLog, CronService, Dream, History, ImageStore, Memory, Model, Runner, Tool
+from miskit import Channel, Compactor, Config, CronLog, CronService, Dream, History, ImageStore, Memory, Model, Runner, Tool, TruncationStore
 from miskit.message import Message
 from miskit.runner import DEFAULT_MAX_TOOL_ROUNDS
 from miskit.heartbeat import HEARTBEAT_JOB_ID, HEARTBEAT_QUIET_REPLY, HeartbeatLog, HeartbeatTasks
@@ -48,6 +48,9 @@ def build_runner(config, instance, services=None):
     provider_config = dict(config.section("provider"))
     provider_config["maxTokens"] = context_config.get("outputTokens", 2000)
 
+    truncation_store = TruncationStore(instance / "truncated")
+    truncation_store.setup()
+
     services = dict(services or {})
     services.setdefault("memory", memory)
     services.setdefault("image_store", image_store)
@@ -56,6 +59,7 @@ def build_runner(config, instance, services=None):
     services.setdefault("heartbeat_log", HeartbeatLog(heartbeat_log_path(instance)))
     services.setdefault("cron_log", CronLog(cron_log_path(instance)))
     services.setdefault("workspace", workspace)
+    services.setdefault("truncation_store", truncation_store)
     services.setdefault(
         "restrict_to_workspace",
         config.section("workspace").get("restrictToWorkspace", True),
@@ -83,6 +87,7 @@ def build_runner(config, instance, services=None):
         compactor=compactor,
         dream=dream,
         max_tool_rounds=max_tool_rounds_from_config(context_config),
+        truncation_store=truncation_store,
     )
 
 

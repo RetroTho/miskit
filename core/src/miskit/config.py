@@ -52,6 +52,9 @@ class Config:
             {
                 "name": "heartbeat",
             },
+            {
+                "name": "read_more",
+            },
         ],
     }
 
