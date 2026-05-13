@@ -123,13 +123,14 @@ class Compactor:
                 current = []
                 current_chars = 0
             current.append(message)
-            current_chars += len(text)
+            # Cap per-message accounting so one huge message doesn't block the next split.
+            current_chars += min(len(text), max_chars)
         if current:
             chunks.append(current)
         return chunks or [messages]
 
     def summary_prompt(self, messages, prior_summary=""):
-        text = "\n\n".join(self.format_message(message) for message in messages)
+        max_chars = self.context_tokens * 5 // 2
         parts = [
             "Summarize this conversation so Miskit can continue it later.\n\n"
             "Do not answer the conversation. Only write a compact summary for future turns.\n\n"
@@ -138,7 +139,13 @@ class Compactor:
         ]
         if prior_summary:
             parts.append(f"Summary so far:\n\n{prior_summary}")
-        parts.append(text)
+        texts = []
+        for message in messages:
+            text = self.format_message(message)
+            if len(text) > max_chars:
+                text = text[:max_chars] + "\n[message truncated for summary]"
+            texts.append(text)
+        parts.append("\n\n".join(texts))
         return "\n\n".join(parts)
 
     def summary_message(self, summary, store_id=None):
