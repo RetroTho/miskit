@@ -1,5 +1,5 @@
-from importlib import import_module
-from importlib.metadata import entry_points
+from miskit.registry import load_module
+from miskit.registry import require_attribute
 
 
 class Provider:
@@ -17,30 +17,15 @@ def load_model(config):
 
 
 def load_provider(name):
-    for module_name in _candidate_module_names(name):
-        try:
-            module = import_module(module_name)
-            break
-        except ImportError:
-            continue
-    else:
-        raise ValueError(f"unknown provider: {name}")
-
+    module = load_module(
+        name,
+        group="miskit.providers",
+        builtins_prefix="miskit.providers",
+        kind="provider",
+        allow_direct=True,
+    )
     provider = module
     if hasattr(module, "provider"):
         provider = module.provider
 
-    if not hasattr(provider, "create_model"):
-        raise ValueError(f"provider must define create_model: {name}")
-
-    return provider
-
-
-def _candidate_module_names(name):
-    for ep in entry_points(group="miskit.providers"):
-        if ep.name == name:
-            yield ep.value
-            break
-    yield name
-    if "." not in name:
-        yield f"miskit.providers.{name}"
+    return require_attribute(provider, "create_model", kind="provider", name=name)

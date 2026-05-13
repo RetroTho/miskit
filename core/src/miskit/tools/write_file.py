@@ -1,10 +1,8 @@
-from pathlib import Path
-
-from miskit.tool import Tool
 from miskit import file_process
+from miskit.tools.workspace_tool import WorkspaceTool
 
 
-class WriteFileTool(Tool):
+class WriteFileTool(WorkspaceTool):
     name = "write_file"
     description = (
         "Write UTF-8 text to a file. Overwrites the whole file if it exists. "
@@ -25,14 +23,6 @@ class WriteFileTool(Tool):
         "required": ["path", "content"],
     }
 
-    def __init__(self, workspace=None, restrict_to_workspace=True,
-                 run_as_user=None):
-        self.workspace = Path(workspace).expanduser() if workspace is not None else None
-        self.restrict_to_workspace = restrict_to_workspace
-        self.run_as_user = run_as_user
-        if self.workspace is not None:
-            self.workspace.mkdir(parents=True, exist_ok=True)
-
     def run(self, arguments):
         requested_path = str(arguments.get("path", "")).strip()
         content = arguments.get("content")
@@ -45,7 +35,7 @@ class WriteFileTool(Tool):
             return "Could not write file: path is required."
 
         try:
-            path = self.resolve_path(requested_path)
+            path = self.workspace.resolve(requested_path)
             file_process.write_text(path, content,
                                     run_as_user=self.run_as_user)
         except ValueError as error:
@@ -55,32 +45,6 @@ class WriteFileTool(Tool):
 
         return f"Wrote {len(content)} characters to {requested_path}"
 
-    def resolve_path(self, path):
-        path = Path(path).expanduser()
-        if self.workspace is None or not self.restrict_to_workspace:
-            return path
-
-        if not path.is_absolute():
-            path = self.workspace / path
-
-        resolved = path.resolve()
-        workspace = self.workspace.resolve()
-        if resolved != workspace and workspace not in resolved.parents:
-            raise ValueError("path must stay inside the workspace")
-
-        return resolved
-
 
 def create_tool(config, services=None):
-    services = services or {}
-    workspace = services.get("workspace")
-    restrict_to_workspace = config.get(
-        "restrictToWorkspace",
-        services.get("restrict_to_workspace", True),
-    )
-    run_as_user = services.get("run_as_user")
-    return WriteFileTool(
-        workspace=workspace,
-        restrict_to_workspace=bool(restrict_to_workspace),
-        run_as_user=run_as_user,
-    )
+    return WriteFileTool(**WriteFileTool.kwargs_from_config(config, services))

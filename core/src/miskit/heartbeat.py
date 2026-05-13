@@ -1,7 +1,8 @@
 import json
 from collections import deque
-from datetime import datetime
 from pathlib import Path
+
+from miskit.transcript import log_message_data
 
 
 HEARTBEAT_JOB_ID = "heartbeat"
@@ -114,7 +115,7 @@ class HeartbeatLog:
         entry = {
             "timestamp": timestamp,
             "quiet": quiet,
-            "messages": [self._message_data(message) for message in messages],
+            "messages": [log_message_data(message) for message in messages],
         }
         with self.path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(entry) + "\n")
@@ -140,14 +141,3 @@ class HeartbeatLog:
                     if entry.get("timestamp") == timestamp:
                         result = entry
         return result
-
-    def _message_data(self, message):
-        data = {"role": message.role, "content": message.content}
-        if message.tool_calls:
-            data["tool_calls"] = [
-                {"name": tc.name, "arguments": tc.arguments}
-                for tc in message.tool_calls
-            ]
-        if message.name:
-            data["name"] = message.name
-        return data

@@ -6,7 +6,9 @@ from pathlib import Path
 from urllib.parse import quote
 
 from miskit.channel import Channel
+from miskit.message import image_part
 from miskit.message import Message
+from miskit.message import text_part
 
 
 @dataclass
@@ -226,9 +228,9 @@ class IMessageChannel(Channel):
 
         content = []
         if text:
-            content.append({"type": "text", "text": text})
+            content.append(text_part(text))
         for image in images:
-            content.append({"type": "image", "path": image["path"], "mime_type": image["mime_type"]})
+            content.append(image_part(image["path"], image["mime_type"]))
 
         stored_parts = [text] if text else []
         for _ in images:

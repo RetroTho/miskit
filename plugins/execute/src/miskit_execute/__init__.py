@@ -1,39 +1,11 @@
 import subprocess
-from pathlib import Path
 
 from miskit.tool import Tool
+from miskit.workspace import Workspace
 
 # Runs subprocesses on the host — not sandboxed unless run_as_user is set.
 
 _DEFAULT_TIMEOUT = 60
-
-
-def _resolve_cwd(workspace, restrict, relative):
-    relative = str(relative or "").strip()
-
-    if not relative:
-        if workspace is not None:
-            return Path(workspace).expanduser().resolve()
-        return None
-
-    if workspace is None:
-        return Path(relative).expanduser().resolve()
-
-    base = Path(workspace).expanduser()
-    path = Path(relative).expanduser()
-
-    if not restrict:
-        return path.resolve()
-
-    if path.is_absolute():
-        raise ValueError("cwd must be a relative path inside the workspace")
-
-    resolved = (base / path).resolve()
-    root = base.resolve()
-    if resolved != root and root not in resolved.parents:
-        raise ValueError("cwd must stay inside the workspace")
-
-    return resolved
 
 
 class ExecuteTool(Tool):
@@ -62,8 +34,10 @@ class ExecuteTool(Tool):
 
     def __init__(self, workspace=None, restrict_to_workspace=True,
                  timeout=_DEFAULT_TIMEOUT, run_as_user=None):
-        self.workspace = workspace
-        self.restrict_to_workspace = restrict_to_workspace
+        if isinstance(workspace, Workspace):
+            self.workspace = workspace
+        else:
+            self.workspace = Workspace(workspace, restrict=restrict_to_workspace)
         self.timeout = timeout
         self.run_as_user = run_as_user
 
@@ -89,8 +63,7 @@ class ExecuteTool(Tool):
             return "cwd must be a string."
 
         try:
-            cwd = _resolve_cwd(self.workspace, self.restrict_to_workspace,
-                               cwd_raw)
+            cwd = self._cwd(cwd_raw)
         except ValueError as error:
             return f"Could not run program: {error}"
 
@@ -117,14 +90,17 @@ class ExecuteTool(Tool):
 
         return "\n".join(parts)
 
+    def _cwd(self, raw):
+        if raw is None or not raw.strip():
+            return self.workspace.default_cwd()
+        return self.workspace.resolve(raw, label="cwd")
+
 
 def create_tool(config, services=None):
     services = services or {}
+    workspace = Workspace.from_tool_config(config, services)
     return ExecuteTool(
-        workspace=services.get("workspace"),
-        restrict_to_workspace=bool(
-            config.get("restrictToWorkspace",
-                        services.get("restrict_to_workspace", True))),
+        workspace=workspace,
         timeout=float(config.get("timeout", _DEFAULT_TIMEOUT)),
         run_as_user=services.get("run_as_user"),
     )

@@ -6,7 +6,9 @@ import urllib.error
 import urllib.request
 
 from miskit.channel import Channel
+from miskit.message import image_part
 from miskit.message import Message
+from miskit.message import text_part
 
 _TELEGRAM_API = "https://api.telegram.org"
 _MAX_MESSAGE_LENGTH = 4096
@@ -260,8 +262,8 @@ class TelegramChannel(Channel):
 
         content = []
         if text:
-            content.append({"type": "text", "text": text})
-        content.append({"type": "image", "path": metadata["path"], "mime_type": metadata["mime_type"]})
+            content.append(text_part(text))
+        content.append(image_part(metadata["path"], metadata["mime_type"]))
 
         stored = f"{text}\n[Image]" if text else "[Image]"
         return Message("user", content, stored_content=stored)

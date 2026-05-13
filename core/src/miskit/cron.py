@@ -7,6 +7,8 @@ from datetime import datetime
 from datetime import timedelta
 from pathlib import Path
 
+from miskit.transcript import log_message_data
+
 
 @dataclass
 class CronJob:
@@ -242,7 +244,7 @@ class CronLog:
             "timestamp": timestamp,
             "job_id": job_id,
             "job_name": job_name,
-            "messages": [self._message_data(message) for message in messages],
+            "messages": [log_message_data(message) for message in messages],
         }
         with self.path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(entry) + "\n")
@@ -268,14 +270,3 @@ class CronLog:
                     if entry.get("job_id") == job_id:
                         result = entry
         return result
-
-    def _message_data(self, message):
-        data = {"role": message.role, "content": message.content}
-        if message.tool_calls:
-            data["tool_calls"] = [
-                {"name": tc.name, "arguments": tc.arguments}
-                for tc in message.tool_calls
-            ]
-        if message.name:
-            data["name"] = message.name
-        return data

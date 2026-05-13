@@ -1,5 +1,5 @@
-from importlib import import_module
-from importlib.metadata import entry_points
+from miskit.registry import load_module
+from miskit.registry import require_attribute
 
 
 class Tool:
@@ -9,10 +9,7 @@ class Tool:
 
     @classmethod
     def load_all(cls, configs, services=None):
-        tools = []
-        for config in configs:
-            tools.append(cls.load(config, services=services))
-        return tools
+        return [cls.load(config, services=services) for config in configs]
 
     def run(self, arguments):
         raise NotImplementedError("tools must define run")
@@ -28,30 +25,10 @@ def load_tool(config, services=None):
 
 
 def load_tool_module(name):
-    for module_name in _candidate_module_names(name):
-        try:
-            module = import_module(module_name)
-            break
-        except ImportError:
-            continue
-    else:
-        raise ValueError(f"unknown tool: {name}")
-
-    if not hasattr(module, "create_tool"):
-        raise ValueError(f"tool must define create_tool: {name}")
-
-    return module
-
-
-def _candidate_module_names(name):
-    # Check installed plugins first (entry point names map to a module path).
-    for ep in entry_points(group="miskit.tools"):
-        if ep.name == name:
-            yield ep.value
-            break
-    # Allow a full dotted module path (e.g. "mypackage.tools.custom").
-    if "." in name:
-        yield name
-    else:
-        # Fall back to built-in tools (e.g. "read_file" → miskit.tools.read_file).
-        yield f"miskit.tools.{name}"
+    module = load_module(
+        name,
+        group="miskit.tools",
+        builtins_prefix="miskit.tools",
+        kind="tool",
+    )
+    return require_attribute(module, "create_tool", kind="tool", name=name)

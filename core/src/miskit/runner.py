@@ -3,6 +3,8 @@ from datetime import datetime
 
 from miskit.conversation import Conversation
 from miskit.message import Message
+from miskit.tool_runner import DEFAULT_MAX_TOOL_OUTPUT_CHARS
+from miskit.tool_runner import ToolRunner
 
 # Default cap on how many times the model may answer with tool calls in one user turn (each time: run tools, then ask again).
 DEFAULT_MAX_TOOL_ROUNDS = 20
@@ -16,9 +18,6 @@ def runtime_metadata():
     timezone = now.tzname() or "local time"
     current_time = f"{now.strftime('%Y-%m-%d %H:%M (%A)')} {timezone}, UTC{offset}"
     return f"[Runtime Metadata]\nCurrent Time: {current_time}\n[/Runtime Metadata]"
-
-
-DEFAULT_MAX_TOOL_OUTPUT_CHARS = 20_000
 
 
 class Runner:
@@ -44,6 +43,11 @@ class Runner:
         self.max_tool_rounds = max_tool_rounds
         self.truncation_store = truncation_store
         self.max_tool_output_chars = max_tool_output_chars
+        self.tool_runner = ToolRunner(
+            self.tools,
+            truncation_store=truncation_store,
+            max_output_chars=max_tool_output_chars,
+        )
         self._last_prompt_tokens = None
         self._dream_requested = False
         self._dream_task = None
@@ -171,29 +175,13 @@ class Runner:
         if not old_messages:
             return False
 
-        # Phase 1: truncate tool outputs in old messages, preserving user/assistant content
-        compacted_old = self.compactor.compact_messages(old_messages, store=self.truncation_store)
-        candidate = self._messages_for_compaction_check(compacted_old + recent_messages)
-        if not self.compactor.should_compact(candidate):
-            self.history.archive()
-            self.conversation.messages = compacted_old + recent_messages
-            self.history.write(self.conversation.messages)
-            self._logged_count = len(self.conversation.messages)
-            self._last_prompt_tokens = None
-            return True
-
-        # Phase 2: still too large — save transcript then fall back to summarization
-        store_id = None
-        if self.truncation_store is not None:
-            transcript = "\n\n".join(self.compactor.format_message(m) for m in old_messages)
-            store_id = self.truncation_store.save(transcript)
-
-        summary = await self.summarize(compacted_old)
-        self.history.archive()
-        self.conversation.messages = [self.compactor.summary_message(summary, store_id=store_id)] + recent_messages
-        self.history.write(self.conversation.messages)
-        self._logged_count = len(self.conversation.messages)
-        self._last_prompt_tokens = None
+        await self._replace_with_compacted_history(
+            old_messages,
+            recent_messages,
+            still_too_large=lambda messages: self.compactor.should_compact(
+                self._messages_for_compaction_check(messages),
+            ),
+        )
         return True
 
     def request_dream(self):
@@ -268,26 +256,36 @@ class Runner:
         if not old_messages:
             return
 
-        # Phase 1: truncate tool outputs in old messages
+        await self._replace_with_compacted_history(
+            old_messages,
+            recent + current_turn,
+            still_too_large=self._context_nearly_full,
+        )
+
+    async def _replace_with_compacted_history(self, old_messages, tail_messages, still_too_large):
+        tail_messages = list(tail_messages)
         compacted_old = self.compactor.compact_messages(old_messages, store=self.truncation_store)
-        candidate = compacted_old + recent + current_turn
-        if not self._context_nearly_full(candidate):
-            self.history.archive()
-            self.conversation.messages = candidate
-            self.history.write(self.conversation.messages)
-            self._logged_count = len(self.conversation.messages)
-            self._last_prompt_tokens = None
+        candidate = compacted_old + tail_messages
+        if not still_too_large(candidate):
+            self._replace_history(candidate)
             return
 
-        # Phase 2: still too large — save transcript then fall back to summarization
-        store_id = None
-        if self.truncation_store is not None:
-            transcript = "\n\n".join(self.compactor.format_message(m) for m in old_messages)
-            store_id = self.truncation_store.save(transcript)
-
+        store_id = self._save_transcript(old_messages)
         summary = await self.summarize(compacted_old)
+        self._replace_history([
+            self.compactor.summary_message(summary, store_id=store_id),
+            *tail_messages,
+        ])
+
+    def _save_transcript(self, messages):
+        if self.truncation_store is None:
+            return None
+        transcript = "\n\n".join(self.compactor.format_message(message) for message in messages)
+        return self.truncation_store.save(transcript)
+
+    def _replace_history(self, messages):
         self.history.archive()
-        self.conversation.messages = [self.compactor.summary_message(summary, store_id=store_id)] + recent + current_turn
+        self.conversation.messages = list(messages)
         self.history.write(self.conversation.messages)
         self._logged_count = len(self.conversation.messages)
         self._last_prompt_tokens = None
@@ -299,25 +297,4 @@ class Runner:
         return tokens >= self.compactor.context_tokens * _CONTEXT_USAGE_LIMIT
 
     def run_tool(self, tool_call):
-        for tool in self.tools:
-            if tool.name == tool_call.name:
-                content = tool.run(tool_call.arguments)
-                content = self._truncate_output(content)
-                return Message("tool", content, tool_call_id=tool_call.id, name=tool_call.name)
-
-        return Message("tool", f"Unknown tool: {tool_call.name}", tool_call_id=tool_call.id, name=tool_call.name)
-
-    def _truncate_output(self, content):
-        if not isinstance(content, str):
-            content = str(content)
-        limit = self.max_tool_output_chars
-        if limit <= 0 or len(content) <= limit:
-            return content
-        if self.truncation_store is not None:
-            store_id = self.truncation_store.save(content)
-            return (
-                content[:limit] +
-                f"\n\n[output truncated at {limit} characters, id: {store_id}"
-                f" -- use read_more(id=\"{store_id}\", offset={limit}) to retrieve the rest]"
-            )
-        return content[:limit] + f"\n\n[output truncated at {limit} characters]"
+        return self.tool_runner.run(tool_call)

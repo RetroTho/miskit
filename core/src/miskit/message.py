@@ -1,11 +1,17 @@
-class ToolCall:
-    def __init__(self, id, name, arguments):
-        if not isinstance(arguments, dict):
-            raise TypeError("tool arguments must be a dictionary")
+from dataclasses import dataclass
 
-        self.id = id
-        self.name = name
-        self.arguments = arguments
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict
+
+    def __post_init__(self):
+        if not isinstance(self.arguments, dict):
+            raise TypeError("tool arguments must be a dictionary")
+        self.id = str(self.id or "")
+        self.name = str(self.name or "")
 
 
 def text_part(text):
@@ -16,27 +22,37 @@ def image_part(path, mime_type):
     return {"type": "image", "path": str(path), "mime_type": str(mime_type or "")}
 
 
+def copy_content(content):
+    if isinstance(content, list):
+        return [dict(part) for part in content]
+    return content
+
+
+@dataclass
 class Message:
-    def __init__(self, role, content="", tool_calls=None, tool_call_id=None, name=None, usage=None, stored_content=None):
-        if role not in ("system", "user", "assistant", "tool"):
+    role: str
+    content: str | list = ""
+    tool_calls: list | None = None
+    tool_call_id: str | None = None
+    name: str | None = None
+    usage: dict | None = None
+    stored_content: str | list | None = None
+
+    def __post_init__(self):
+        if self.role not in ("system", "user", "assistant", "tool"):
             raise ValueError("role must be system, user, assistant, or tool")
 
-        if not isinstance(content, (str, list)):
+        if not isinstance(self.content, (str, list)):
             raise TypeError("content must be text or a list of content parts")
 
-        if stored_content is not None and not isinstance(stored_content, (str, list)):
+        if self.stored_content is not None and not isinstance(self.stored_content, (str, list)):
             raise TypeError("stored_content must be text or a list of content parts")
 
-        if usage is not None and not isinstance(usage, dict):
+        if self.usage is not None and not isinstance(self.usage, dict):
             raise TypeError("usage must be a dictionary")
 
-        self.role = role
-        self.content = content
-        self.tool_calls = tool_calls or []
-        self.tool_call_id = tool_call_id
-        self.name = name
-        self.usage = usage or {}
-        self.stored_content = stored_content
+        self.tool_calls = list(self.tool_calls or [])
+        self.usage = dict(self.usage or {})
 
     @property
     def text(self):
@@ -61,12 +77,12 @@ class Message:
 
     def with_prepended_text(self, text):
         if not text:
-            return Message(self.role, self.content)
+            return self.copy()
         if isinstance(self.content, str):
             content = f"{text}{self.content}" if self.content else text
         else:
             content = [text_part(text)] + [dict(p) for p in self.content]
-        return Message(self.role, content)
+        return self.copy(content=content)
 
     def storage_message(self):
         if self.stored_content is None:
@@ -80,3 +96,16 @@ class Message:
             name=self.name,
             usage=self.usage,
         )
+
+    def copy(self, **changes):
+        values = {
+            "role": self.role,
+            "content": copy_content(self.content),
+            "tool_calls": list(self.tool_calls),
+            "tool_call_id": self.tool_call_id,
+            "name": self.name,
+            "usage": dict(self.usage),
+            "stored_content": copy_content(self.stored_content),
+        }
+        values.update(changes)
+        return Message(**values)

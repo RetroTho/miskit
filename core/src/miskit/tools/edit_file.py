@@ -1,10 +1,8 @@
-from pathlib import Path
-
-from miskit.tool import Tool
 from miskit import file_process
+from miskit.tools.workspace_tool import WorkspaceTool
 
 
-class EditFileTool(Tool):
+class EditFileTool(WorkspaceTool):
     name = "edit_file"
     description = (
         "Edit a UTF-8 text file by replacing one occurrence of old_text with new_text. "
@@ -34,14 +32,6 @@ class EditFileTool(Tool):
         "required": ["path", "old_text", "new_text"],
     }
 
-    def __init__(self, workspace=None, restrict_to_workspace=True,
-                 run_as_user=None):
-        self.workspace = Path(workspace).expanduser() if workspace is not None else None
-        self.restrict_to_workspace = restrict_to_workspace
-        self.run_as_user = run_as_user
-        if self.workspace is not None:
-            self.workspace.mkdir(parents=True, exist_ok=True)
-
     def run(self, arguments):
         requested_path = str(arguments.get("path", "")).strip()
         old_text = arguments.get("old_text")
@@ -66,7 +56,7 @@ class EditFileTool(Tool):
             return "Could not edit file: old_text cannot be empty."
 
         try:
-            path = self.resolve_path(requested_path)
+            path = self.workspace.resolve(requested_path)
         except ValueError as error:
             return f"Could not edit file: {error}"
 
@@ -105,32 +95,6 @@ class EditFileTool(Tool):
 
         return f"Edited {requested_path}"
 
-    def resolve_path(self, path):
-        path = Path(path).expanduser()
-        if self.workspace is None or not self.restrict_to_workspace:
-            return path
-
-        if not path.is_absolute():
-            path = self.workspace / path
-
-        resolved = path.resolve()
-        workspace = self.workspace.resolve()
-        if resolved != workspace and workspace not in resolved.parents:
-            raise ValueError("path must stay inside the workspace")
-
-        return resolved
-
 
 def create_tool(config, services=None):
-    services = services or {}
-    workspace = services.get("workspace")
-    restrict_to_workspace = config.get(
-        "restrictToWorkspace",
-        services.get("restrict_to_workspace", True),
-    )
-    run_as_user = services.get("run_as_user")
-    return EditFileTool(
-        workspace=workspace,
-        restrict_to_workspace=bool(restrict_to_workspace),
-        run_as_user=run_as_user,
-    )
+    return EditFileTool(**EditFileTool.kwargs_from_config(config, services))

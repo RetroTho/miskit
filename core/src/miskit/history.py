@@ -2,8 +2,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from miskit.message import Message
-from miskit.message import ToolCall
+from miskit.transcript import message_data
+from miskit.transcript import message_from_data
 
 
 class History:
@@ -33,7 +33,7 @@ class History:
 
         for line in self.path().read_text(encoding="utf-8").splitlines():
             if line:
-                messages.append(self.message_from_data(json.loads(line)))
+                messages.append(message_from_data(json.loads(line)))
 
         return messages
 
@@ -56,41 +56,4 @@ class History:
                 self.write_message(file, message)
 
     def write_message(self, file, message):
-        file.write(json.dumps(self.message_data(message)) + "\n")
-
-    def message_data(self, message):
-        data = {
-            "role": message.role,
-            "content": message.content,
-            "tool_calls": [self.tool_call_data(tool_call) for tool_call in message.tool_calls],
-            "tool_call_id": message.tool_call_id,
-            "name": message.name,
-        }
-        if message.usage:
-            data["usage"] = message.usage
-        return data
-
-    def message_from_data(self, data):
-        tool_calls = []
-        for tool_call in data.get("tool_calls", []):
-            tool_calls.append(ToolCall(
-                tool_call.get("id"),
-                tool_call.get("name"),
-                tool_call.get("arguments", {}),
-            ))
-
-        return Message(
-            data.get("role"),
-            data.get("content", ""),
-            tool_calls=tool_calls,
-            tool_call_id=data.get("tool_call_id"),
-            name=data.get("name"),
-            usage=data.get("usage"),
-        )
-
-    def tool_call_data(self, tool_call):
-        return {
-            "id": tool_call.id,
-            "name": tool_call.name,
-            "arguments": tool_call.arguments,
-        }
+        file.write(json.dumps(message_data(message)) + "\n")

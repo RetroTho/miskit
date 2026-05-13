@@ -18,7 +18,9 @@ from miskit.model import Model
 from miskit.provider import Provider
 from miskit.runner import Runner
 from miskit.tool import Tool
+from miskit.tool_runner import ToolRunner
 from miskit.truncation import TruncationStore
+from miskit.workspace import Workspace
 from miskit.tools.cron import CronTool
 from miskit.tools.heartbeat import HeartbeatTool
 from miskit.tools.edit_file import EditFileTool

@@ -1,5 +1,5 @@
-from importlib import import_module
-from importlib.metadata import entry_points
+from miskit.registry import load_module
+from miskit.registry import require_attribute
 
 
 class Channel:
@@ -24,30 +24,10 @@ def load_channel(config, image_store=None):
 
 
 def load_channel_module(name):
-    for module_name in _candidate_module_names(name):
-        try:
-            module = import_module(module_name)
-            break
-        except ImportError:
-            continue
-    else:
-        raise ValueError(f"unknown channel: {name}")
-
-    if not hasattr(module, "create_channel"):
-        raise ValueError(f"channel must define create_channel: {name}")
-
-    return module
-
-
-def _candidate_module_names(name):
-    # Check installed plugins first (e.g. miskit-imessage registers "imessage").
-    for ep in entry_points(group="miskit.channels"):
-        if ep.name == name:
-            yield ep.value
-            break
-    # Allow a full dotted module path (e.g. "mypackage.channels.custom").
-    if "." in name:
-        yield name
-    else:
-        # Fall back to built-in channels (e.g. "terminal" → miskit.channels.terminal).
-        yield f"miskit.channels.{name}"
+    module = load_module(
+        name,
+        group="miskit.channels",
+        builtins_prefix="miskit.channels",
+        kind="channel",
+    )
+    return require_attribute(module, "create_channel", kind="channel", name=name)

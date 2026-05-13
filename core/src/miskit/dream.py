@@ -2,10 +2,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from miskit.history import History
 from miskit.message import Message
 from miskit.runner import Runner
+from miskit.transcript import format_message as format_transcript_message
+from miskit.transcript import message_from_data
 from miskit.tools.memory import MemoryTool
+
 
 @dataclass
 class DreamResult:
@@ -93,7 +95,7 @@ class Dream:
         current = []
         current_chars = 0
         for message in messages:
-            text = self.format_message(message)
+            text = format_transcript_message(message)
             if current and message.role == "user" and current_chars + len(text) > max_chars:
                 chunks.append(current)
                 current = []
@@ -110,7 +112,7 @@ class Dream:
         max_chars = self.max_chunk_chars
         texts = []
         for m in messages:
-            text = self.format_message(m)
+            text = format_transcript_message(m)
             if len(text) > max_chars:
                 text = text[:max_chars] + "\n[message truncated for summary]"
             texts.append(text)
@@ -125,28 +127,16 @@ class Dream:
         )
 
     def read_archive(self, path):
-        reader = History(Path(path).parent)
         messages = []
 
         for line in Path(path).read_text(encoding="utf-8").splitlines():
             if line:
-                messages.append(reader.message_from_data(json.loads(line)))
+                messages.append(message_from_data(json.loads(line)))
 
         return messages
 
     def format_message(self, message):
-        label = message.role
-        if message.name:
-            label = f"{label} {message.name}"
-
-        content = message.content or "(no text)"
-        if message.tool_calls:
-            calls = []
-            for tool_call in message.tool_calls:
-                calls.append(f"{tool_call.name}({json.dumps(tool_call.arguments)})")
-            content = f"{content}\nTool calls: {', '.join(calls)}"
-
-        return f"{label}: {content}"
+        return format_transcript_message(message)
 
     def load_state(self):
         if not self.state_path.exists():

@@ -1,6 +1,7 @@
 import json
 
 from miskit.message import Message
+from miskit.transcript import format_message as format_transcript_message
 
 _COMPACT_TOOL_OUTPUT_CHARS = 200
 
@@ -106,7 +107,7 @@ class Compactor:
                     )
                 else:
                     content = message.content[:_COMPACT_TOOL_OUTPUT_CHARS] + "\n\n[truncated]"
-                result.append(Message(message.role, content, tool_call_id=message.tool_call_id, name=message.name))
+                result.append(message.copy(content=content))
             else:
                 result.append(message)
         return result
@@ -117,7 +118,7 @@ class Compactor:
         current = []
         current_chars = 0
         for message in messages:
-            text = self.format_message(message)
+            text = format_transcript_message(message)
             if current and message.role == "user" and current_chars + len(text) > max_chars:
                 chunks.append(current)
                 current = []
@@ -141,7 +142,7 @@ class Compactor:
             parts.append(f"Summary so far:\n\n{prior_summary}")
         texts = []
         for message in messages:
-            text = self.format_message(message)
+            text = format_transcript_message(message)
             if len(text) > max_chars:
                 text = text[:max_chars] + "\n[message truncated for summary]"
             texts.append(text)
@@ -163,13 +164,4 @@ class Compactor:
         return Message("system", content)
 
     def format_message(self, message):
-        label = message.role
-        if message.name:
-            label = f"{label} {message.name}"
-        content = message.content or "(no text)"
-        if message.tool_calls:
-            calls = []
-            for tool_call in message.tool_calls:
-                calls.append(f"{tool_call.name}({json.dumps(tool_call.arguments)})")
-            content = f"{content}\nTool calls: {', '.join(calls)}"
-        return f"{label}: {content}"
+        return format_transcript_message(message)
