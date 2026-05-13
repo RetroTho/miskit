@@ -6,6 +6,8 @@ from pathlib import Path
 from uuid import uuid4
 
 
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
 SUPPORTED_IMAGE_MIME_TYPES = {
     "image/bmp",
     "image/gif",
@@ -94,6 +96,8 @@ class ImageStore:
 
     def _normalize_for_model(self, path, mime_type):
         if mime_type in MODEL_IMAGE_MIME_TYPES:
+            if path.stat().st_size > MAX_IMAGE_BYTES:
+                self._downscale_to_fit(path)
             return path, mime_type
         if not str(mime_type).startswith("image/"):
             return path, mime_type
@@ -105,9 +109,31 @@ class ImageStore:
         if self._convert_to_jpeg(path, converted):
             if path.exists():
                 path.unlink()
-            return converted, "image/jpeg"
+            path, mime_type = converted, "image/jpeg"
+
+        if path.stat().st_size > MAX_IMAGE_BYTES:
+            self._downscale_to_fit(path)
 
         return path, mime_type
+
+    def _downscale_to_fit(self, path):
+        if shutil.which("sips") is None:
+            raise ValueError(
+                f"image too large ({path.stat().st_size:,} bytes, limit {MAX_IMAGE_BYTES:,}) "
+                "and could not be downscaled (sips not available)"
+            )
+        for max_dim in (2048, 1024, 512):
+            subprocess.run(
+                ["sips", "-Z", str(max_dim), str(path), "--out", str(path)],
+                capture_output=True,
+                check=False,
+            )
+            if path.stat().st_size <= MAX_IMAGE_BYTES:
+                return
+        raise ValueError(
+            f"image too large ({path.stat().st_size:,} bytes, limit {MAX_IMAGE_BYTES:,}) "
+            "and could not be downscaled to fit"
+        )
 
     def _convert_to_jpeg(self, source, destination):
         if shutil.which("sips") is None:
