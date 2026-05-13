@@ -14,11 +14,12 @@ from miskit.provider import Provider
 
 
 class GenericModel(Model):
-    def __init__(self, model, api_key=None, base_url=None, max_tokens=None):
+    def __init__(self, model, api_key=None, base_url=None, max_tokens=None, timeout=60):
         self.model = model
         self.api_key = api_key
         self.base_url = base_url
         self.max_tokens = max_tokens
+        self.timeout = timeout
 
     @classmethod
     def from_config(cls, config):
@@ -27,6 +28,7 @@ class GenericModel(Model):
             api_key=config.get("apiKey"),
             base_url=config.get("baseUrl"),
             max_tokens=config.get("maxTokens"),
+            timeout=_timeout_from_config(config.get("timeout", 60)),
         )
 
     async def complete(self, messages, tools=None):
@@ -42,7 +44,7 @@ class GenericModel(Model):
         )
 
         try:
-            with urlopen(request) as response:
+            with urlopen(request, timeout=self.timeout) as response:
                 text = response.read().decode("utf-8")
         except HTTPError as error:
             body = error.read().decode("utf-8")
@@ -213,3 +215,15 @@ class GenericProvider(Provider):
 
 
 provider = GenericProvider()
+
+
+def _timeout_from_config(value):
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("provider.timeout must be a positive number") from error
+
+    if timeout <= 0:
+        raise ValueError("provider.timeout must be a positive number")
+
+    return timeout

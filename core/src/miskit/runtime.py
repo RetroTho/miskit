@@ -32,6 +32,17 @@ def max_tool_rounds_from_config(context):
     return value
 
 
+def output_tokens_from_config(context):
+    raw = context.get("outputTokens", 2000)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError("context.outputTokens must be a positive integer") from error
+    if value <= 0:
+        raise ValueError("context.outputTokens must be a positive integer")
+    return value
+
+
 def build_runner(config, instance, services=None):
     instance = Path(instance).expanduser()
     memory = Memory(instance / "memory")
@@ -46,7 +57,7 @@ def build_runner(config, instance, services=None):
     workspace.mkdir(parents=True, exist_ok=True)
     context_config = config.section("context")
     provider_config = dict(config.section("provider"))
-    provider_config["maxTokens"] = context_config.get("outputTokens", 2000)
+    provider_config["maxTokens"] = output_tokens_from_config(context_config)
 
     truncation_store = TruncationStore(instance / "truncated")
     truncation_store.setup()
@@ -77,7 +88,7 @@ def build_runner(config, instance, services=None):
         memory,
         instance / "history" / "archive",
         instance / "dream.json",
-        max_chunk_chars=context_config.get("tokens", 8000) * 5 // 2,
+        max_chunk_chars=compactor.context_tokens * 5 // 2,
     )
     return Runner(
         model,
