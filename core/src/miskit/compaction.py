@@ -2,6 +2,9 @@ import json
 
 from miskit.message import Message
 
+_COMPACT_TOOL_OUTPUT_CHARS = 200
+
+
 class Compactor:
     def __init__(self, context_tokens=8000, compact_at=0.5, keep_recent=10):
         self.context_tokens = context_tokens
@@ -88,6 +91,26 @@ class Compactor:
             return False
         return True
 
+    def compact_messages(self, messages, store=None):
+        result = []
+        for message in messages:
+            if (message.role == "tool" and
+                    isinstance(message.content, str) and
+                    len(message.content) > _COMPACT_TOOL_OUTPUT_CHARS):
+                if store is not None:
+                    store_id = store.save(message.content)
+                    content = (
+                        message.content[:_COMPACT_TOOL_OUTPUT_CHARS] +
+                        f"\n\n[truncated, id: {store_id}"
+                        f" -- use read_more(id=\"{store_id}\", offset={_COMPACT_TOOL_OUTPUT_CHARS}) to retrieve the rest]"
+                    )
+                else:
+                    content = message.content[:_COMPACT_TOOL_OUTPUT_CHARS] + "\n\n[truncated]"
+                result.append(Message(message.role, content, tool_call_id=message.tool_call_id, name=message.name))
+            else:
+                result.append(message)
+        return result
+
     def split_for_summary(self, messages, reserved_chars=0):
         max_chars = max(1, self.context_tokens * 5 // 2 - reserved_chars)
         chunks = []
@@ -118,13 +141,18 @@ class Compactor:
         parts.append(text)
         return "\n\n".join(parts)
 
-    def summary_message(self, summary):
+    def summary_message(self, summary, store_id=None):
         content = (
             "# Previous Conversation Summary\n\n"
             "This is a compact summary of an archived conversation. Use it as background context, "
             "but prefer newer messages when details conflict.\n\n"
             f"{summary}"
         )
+        if store_id is not None:
+            content += (
+                f"\n\n[Full transcript archived, id: {store_id}"
+                f" -- use read_more(id=\"{store_id}\") to retrieve the original messages]"
+            )
         return Message("system", content)
 
     def format_message(self, message):

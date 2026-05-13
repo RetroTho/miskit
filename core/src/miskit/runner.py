@@ -136,8 +136,11 @@ class Runner:
                 self.request_dream()
             return message
 
-    def _messages_for_compaction_check(self):
-        messages = list(self.conversation.messages)
+    def _messages_for_compaction_check(self, messages=None):
+        if messages is None:
+            messages = list(self.conversation.messages)
+        else:
+            messages = list(messages)
         if self.memory is not None:
             system_prompt = self.memory.system_prompt()
             if system_prompt:
@@ -156,9 +159,26 @@ class Runner:
         if not old_messages:
             return False
 
-        summary = await self.summarize(old_messages)
+        # Phase 1: truncate tool outputs in old messages, preserving user/assistant content
+        compacted_old = self.compactor.compact_messages(old_messages, store=self.truncation_store)
+        candidate = self._messages_for_compaction_check(compacted_old + recent_messages)
+        if not self.compactor.should_compact(candidate):
+            self.history.archive()
+            self.conversation.messages = compacted_old + recent_messages
+            self.history.write(self.conversation.messages)
+            self._logged_count = len(self.conversation.messages)
+            self._last_prompt_tokens = None
+            return True
+
+        # Phase 2: still too large — save transcript then fall back to summarization
+        store_id = None
+        if self.truncation_store is not None:
+            transcript = "\n\n".join(self.compactor.format_message(m) for m in old_messages)
+            store_id = self.truncation_store.save(transcript)
+
+        summary = await self.summarize(compacted_old)
         self.history.archive()
-        self.conversation.messages = [self.compactor.summary_message(summary)] + recent_messages
+        self.conversation.messages = [self.compactor.summary_message(summary, store_id=store_id)] + recent_messages
         self.history.write(self.conversation.messages)
         self._logged_count = len(self.conversation.messages)
         self._last_prompt_tokens = None
@@ -232,9 +252,27 @@ class Runner:
         old_messages, recent = self.compactor.split(prior)
         if not old_messages:
             return
-        summary = await self.summarize(old_messages)
+
+        # Phase 1: truncate tool outputs in old messages
+        compacted_old = self.compactor.compact_messages(old_messages, store=self.truncation_store)
+        candidate = compacted_old + recent + current_turn
+        if not self._context_nearly_full(candidate):
+            self.history.archive()
+            self.conversation.messages = candidate
+            self.history.write(self.conversation.messages)
+            self._logged_count = len(self.conversation.messages)
+            self._last_prompt_tokens = None
+            return
+
+        # Phase 2: still too large — save transcript then fall back to summarization
+        store_id = None
+        if self.truncation_store is not None:
+            transcript = "\n\n".join(self.compactor.format_message(m) for m in old_messages)
+            store_id = self.truncation_store.save(transcript)
+
+        summary = await self.summarize(compacted_old)
         self.history.archive()
-        self.conversation.messages = [self.compactor.summary_message(summary)] + recent + current_turn
+        self.conversation.messages = [self.compactor.summary_message(summary, store_id=store_id)] + recent + current_turn
         self.history.write(self.conversation.messages)
         self._logged_count = len(self.conversation.messages)
         self._last_prompt_tokens = None
