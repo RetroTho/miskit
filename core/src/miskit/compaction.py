@@ -57,12 +57,27 @@ class Compactor:
         if len(messages) <= self.keep_recent:
             return [], messages
 
-        start = max(0, len(messages) - self.keep_recent)
-        if start == len(messages):
-            return messages, []
+        ideal = max(0, len(messages) - self.keep_recent)
+        if ideal == 0:
+            return [], messages
 
+        # Walk backward from ideal to avoid splitting mid-tool-chain.
+        start = ideal
         while start > 0 and not self._safe_start(messages[start]):
             start -= 1
+
+        # Backward walk reached 0 — try walking forward from ideal instead.
+        if start == 0 and not self._safe_start(messages[0]):
+            start = ideal
+            while start < len(messages) and not self._safe_start(messages[start]):
+                start += 1
+
+        # Both walks failed (entire conversation is one tool chain) — force split.
+        if start >= len(messages):
+            start = ideal
+
+        if start == 0:
+            return [], messages
 
         return messages[:start], messages[start:]
 
