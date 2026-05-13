@@ -192,23 +192,24 @@ class CronService:
 
     async def _run_due_jobs(self):
         now = datetime.now().astimezone()
-        due = []
-        later = []
-
-        for job in self.list_jobs():
-            if job.at <= now:
-                due.append(job)
-            else:
-                later.append(job)
-
-        self._save(later)
+        due = [job for job in self.list_jobs() if job.at <= now]
 
         for job in due:
-            if self.on_job is not None:
-                await self.on_job(job)
+            # Remove one-time jobs or unschedule recurring jobs before running,
+            # then reschedule recurring jobs after. This way a crash during
+            # execution doesn't leave a job stuck in the past firing repeatedly.
+            jobs = [j for j in self.list_jobs() if j.id != job.id]
+            self._save(jobs)
+
+            try:
+                if self.on_job is not None:
+                    await self.on_job(job)
+            except Exception:
+                pass
+
             if job.every_seconds is not None:
                 job.at = datetime.now().astimezone() + timedelta(seconds=job.every_seconds)
-                jobs = [old_job for old_job in self.list_jobs() if old_job.id != job.id]
+                jobs = [j for j in self.list_jobs() if j.id != job.id]
                 jobs.append(job)
                 self._save(jobs)
 
