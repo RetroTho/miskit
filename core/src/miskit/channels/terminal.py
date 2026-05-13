@@ -20,7 +20,11 @@ class TerminalChannel(Channel):
             if not text:
                 continue
 
-            reply = await runner.chat(text)
+            try:
+                reply = await runner.chat(text)
+            except Exception as error:
+                self.write(f"Error: {error}")
+                continue
             await self.send(reply.content)
 
     async def send(self, content):
