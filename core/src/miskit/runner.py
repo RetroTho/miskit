@@ -115,8 +115,13 @@ class Runner:
             stored_message = user_message.storage_message()
             self.conversation.add(stored_message)
             archived = await self.compact_if_needed()
+            snapshot = len(self.conversation.messages)
             messages = self._messages_with_active_user_message(stored_message, user_message)
-            message = await self.run_turn(messages, log_tools=True)
+            try:
+                message = await self.run_turn(messages, log_tools=True)
+            except Exception:
+                self.rollback_conversation(snapshot)
+                raise
             self._last_prompt_tokens = message.usage.get("prompt_tokens")
             self.conversation.add(message)
             self.log_conversation()
